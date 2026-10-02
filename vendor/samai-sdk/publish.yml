@@ -1,0 +1,53 @@
+name: Publish to npm
+
+# Triggers on a published GitHub Release (tag the release to match the
+# version in package.json, e.g. v0.3.2). Keeping publish separate from CI
+# means nothing ever gets published without first passing the full test
+# matrix on a clean runner.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write   # required for npm provenance
+
+jobs:
+  publish:
+    name: Build, verify & publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify package.json version matches release tag
+        run: |
+          PKG_VERSION="v$(node -p "require('./package.json').version")"
+          if [ "$PKG_VERSION" != "${{ github.event.release.tag_name }}" ]; then
+            echo "Mismatch: package.json is $PKG_VERSION but release tag is ${{ github.event.release.tag_name }}"
+            exit 1
+          fi
+
+      - name: Publish with provenance
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

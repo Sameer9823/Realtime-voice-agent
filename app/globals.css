@@ -1,0 +1,377 @@
+:root {
+  --bg: #0b0d14;
+  --bg-soft: #12151f;
+  --panel: rgba(255, 255, 255, 0.04);
+  --border: rgba(255, 255, 255, 0.09);
+  --text: #e8ecf5;
+  --muted: #9aa4bb;
+  --accent: #7eacdc;
+  --danger: #dc8484;
+  --radius: 18px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  /* A soft, static backdrop. The orb supplies the motion. */
+  background-image: radial-gradient(1100px 620px at 50% -10%, rgba(70, 96, 148, 0.22), transparent 62%);
+  background-attachment: fixed;
+}
+
+.shell {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px 48px;
+}
+
+.stage {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.stage-header {
+  text-align: center;
+}
+
+.brand {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.tagline {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+/* ── Orb ──────────────────────────────────────────────────────────────── */
+
+.orb-area {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0 4px;
+}
+
+.orb-wrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.orb-wrap canvas {
+  display: block;
+}
+
+.orb-badge {
+  position: absolute;
+  bottom: 6%;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: rgba(11, 13, 20, 0.55);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+/* ── Status ────────────────────────────────────────────────────────────── */
+
+.status {
+  text-align: center;
+  min-height: 44px;
+}
+
+.status-message {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.status-tool {
+  color: var(--accent);
+}
+
+.status-hint,
+.controls-hint,
+.capability-note {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.status-error .status-message {
+  color: var(--danger);
+}
+
+.capability-note {
+  text-align: center;
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.mic-button {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 140ms ease, background 180ms ease, border-color 180ms ease;
+}
+
+.mic-button:hover:not(:disabled) {
+  transform: scale(1.04);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.mic-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.mic-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mic-button:focus-visible,
+.text-button:focus-visible,
+.transcript-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Expanding ring marks a live session. Static, slow, and subtle — it is a state cue, not decoration. */
+.mic-button-live {
+  border-color: rgba(126, 172, 220, 0.5);
+  background: rgba(126, 172, 220, 0.12);
+}
+
+.mic-button-live .mic-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1px solid rgba(126, 172, 220, 0.28);
+  animation: pulse 2.8s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.94);
+    opacity: 0.7;
+  }
+  70% {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+}
+
+.mic-icon {
+  width: 28px;
+  height: 28px;
+  fill: currentColor;
+}
+
+.mic-button-live .mic-icon {
+  fill: var(--accent);
+}
+
+.controls-label {
+  min-height: 20px;
+}
+
+.text-button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.text-button:hover {
+  color: var(--text);
+}
+
+/* ── Transcript ────────────────────────────────────────────────────────── */
+
+.transcript {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.transcript-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.transcript-toggle-label {
+  flex: 1;
+}
+
+.transcript-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 0.8rem;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.transcript-chevron {
+  color: var(--muted);
+}
+
+.transcript-body {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px 16px 16px;
+  border-top: 1px solid var(--border);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.transcript-empty {
+  margin: 12px 0 4px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.entry {
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.entry:last-child {
+  border-bottom: none;
+}
+
+.entry-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.entry-speaker {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.entry-user .entry-speaker {
+  color: var(--accent);
+}
+
+.entry-assistant .entry-speaker {
+  color: #8fc9c9;
+}
+
+.entry-time {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-flag {
+  color: #e0ac76;
+  background: rgba(224, 172, 118, 0.12);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.entry-text {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.entry-placeholder {
+  color: var(--muted);
+}
+
+.entry-ellipsis {
+  color: var(--muted);
+}
+
+/* ── Responsive & motion ───────────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .brand {
+    font-size: 1.25rem;
+  }
+
+  .transcript-body {
+    max-height: 260px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mic-button-live .mic-ring {
+    animation: none;
+    opacity: 0.5;
+  }
+
+  .mic-button {
+    transition: none;
+  }
+}
