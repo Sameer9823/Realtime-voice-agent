@@ -161,3 +161,139 @@ describe("POST /api/realtime/session", () => {
     expect(text).not.toContain("ECONNREFUSED");
   });
 });
+
+describe("POST /api/realtime/session guards", () => {
+  function okFetch() {
+    return new Response(JSON.stringify({ value: "ek_ephemeral_123", expires_at: 1893456000 }), { status: 200 });
+  }
+
+  it("rejects a disallowed origin before spending an OpenAI call", async () => {
+    process.env.ALLOWED_ORIGINS = "https://app.example";
+    const fetchMock = vi.fn(async () => okFetch());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const POST = await loadRoute();
+    const res = await POST(
+      new Request("http://localhost/api/realtime/session", {
+        method: "POST",
+        body: "{}",
+        headers: { origin: "https://evil.example" },
+      }),
+    );
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("forbidden");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows a listed origin", async () => {
+    process.env.ALLOWED_ORIGINS = "https://app.example";
+    vi.stubGlobal("fetch", vi.fn(async () => okFetch()));
+
+    const POST = await loadRoute();
+    const res = await POST(
+      new Request("http://localhost/api/realtime/session", {
+        method: "POST",
+        body: "{}",
+        headers: { origin: "https://app.example" },
+      }),
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it("rate limits repeat calls from one client", async () => {
+    process.env.RATE_LIMIT_MAX = "1";
+    const fetchMock = vi.fn(async () => okFetch());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const POST = await loadRoute();
+    const headers = { "x-forwarded-for": "5.5.5.5" };
+
+    const first = await POST(new Request("http://localhost/api/realtime/session", { method: "POST", body: "{}", headers }));
+    const second = await POST(new Request("http://localhost/api/realtime/session", { method: "POST", body: "{}", headers }));
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(429);
+    expect(second.headers.get("Retry-After")).toBeTruthy();
+    // Only the first call may reach OpenAI.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps rate limit buckets separate per client", async () => {
+    process.env.RATE_LIMIT_MAX = "1";
+    vi.stubGlobal("fetch", vi.fn(async () => okFetch()));
+
+    const POST = await loadRoute();
+    const one = await POST(
+      new Request("http://localhost/api/realtime/session", { method: "POST", body: "{}", headers: { "x-forwarded-for": "1.1.1.1" } }),
+    );
+    const two = await POST(
+      new Request("http://localhost/api/realtime/session", { method: "POST", body: "{}", headers: { "x-forwarded-for": "2.2.2.2" } }),
+    );
+
+    expect(one.status).toBe(200);
+    expect(two.status).toBe(200);
+  });
+
+  it("applies the global cap across clients", async () => {
+    process.env.GLOBAL_CAP_MAX = "1";
+    vi.stubGlobal("fetch", vi.fn(async () => okFetch()));
+
+    const POST = await loadRoute();
+    const one = await POST(
+      new Request("http://localhost/api/realtime/session", { method: "POST", body: "{}", headers: { "x-forwarded-for": "1.1.1.1" } }),
+    );
+    const two = await POST(
+      new Request("http://localhost/api/realtime/session", { method: "POST", body: "{}", headers: { "x-forwarded-for": "2.2.2.2" } }),
+    );
+
+    expect(one.status).toBe(200);
+    expect(two.status).toBe(429);
+  });
+
+  it("refuses a voice outside the allowlist", async () => {
+    const fetchMock = vi.fn(async () => okFetch());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const POST = await loadRoute();
+    const res = await POST(
+      new Request("http://localhost/api/realtime/session", {
+        method: "POST",
+        body: JSON.stringify({ voice: "evil-voice" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("invalid_voice");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a model outside the allowlist", async () => {
+    const POST = await loadRoute();
+    const res = await POST(
+      new Request("http://localhost/api/realtime/session", {
+        method: "POST",
+        body: JSON.stringify({ model: "gpt-4o-realtime-preview" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("invalid_model");
+  });
+
+  it("accepts a voice from the allowlist", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => okFetch()));
+
+    const POST = await loadRoute();
+    const res = await POST(
+      new Request("http://localhost/api/realtime/session", {
+        method: "POST",
+        body: JSON.stringify({ voice: "onyx" }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).voice).toBe("onyx");
+  });
+});

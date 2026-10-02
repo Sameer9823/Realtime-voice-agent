@@ -39,6 +39,10 @@ export type VoiceErrorKind =
   | "connection_failed"
   | "session_failed"
   | "model_unavailable"
+  // Server-side guard rejections.
+  | "forbidden"
+  | "invalid_voice"
+  | "invalid_model"
   | "unknown";
 
 export interface VoiceError {

@@ -7,6 +7,7 @@ import {
   VOICE_INSTRUCTIONS,
 } from "@/lib/voice/config";
 import { OPENAI_API_KEY, openAiBaseUrl, realtimeModel, realtimeVoice } from "@/lib/voice/server-config";
+import { checkLimits, checkModel, checkOrigin, checkVoice, clientKey, guardFromEnv, type GuardDecision } from "@/lib/voice/guard";
 import type { SessionErrorBody, SessionRequestBody, SessionResponseBody } from "@/lib/voice/types";
 
 /**
@@ -20,6 +21,20 @@ import type { SessionErrorBody, SessionRequestBody, SessionResponseBody } from "
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * Guards are built once per process. They hold the rate-limit buckets, so building them
+ * per request would reset the counters and make the limit useless.
+ */
+const guard = guardFromEnv();
+
+/** Renders a rejected guard decision as an HTTP response. */
+function refusal(decision: GuardDecision): NextResponse<SessionErrorBody> {
+  return NextResponse.json<SessionErrorBody>(
+    { error: decision.code ?? "forbidden", message: decision.message ?? "Request rejected." },
+    decision.retryAfterSeconds ? { status: decision.status, headers: { "Retry-After": String(decision.retryAfterSeconds) } } : { status: decision.status },
+  );
+}
 
 /** Maps an upstream OpenAI failure onto a stable, user-safe category. */
 function classify(status: number, body: string): SessionErrorBody {
@@ -39,6 +54,12 @@ function classify(status: number, body: string): SessionErrorBody {
 }
 
 export async function POST(request: Request) {
+  const origin = checkOrigin(request.headers.get("origin"), guard.allowedOrigins);
+  if (!origin.ok) return refusal(origin);
+
+  const limits = await checkLimits(clientKey(request), guard);
+  if (!limits.ok) return refusal(limits);
+
   const apiKey = OPENAI_API_KEY;
   if (!apiKey) {
     return NextResponse.json<SessionErrorBody>(
@@ -59,6 +80,12 @@ export async function POST(request: Request) {
 
   const model = body.model || realtimeModel || DEFAULT_REALTIME_MODEL;
   const voice = body.voice || realtimeVoice || DEFAULT_REALTIME_VOICE;
+
+  const voiceCheck = checkVoice(voice);
+  if (!voiceCheck.ok) return refusal(voiceCheck);
+
+  const modelCheck = checkModel(model);
+  if (!modelCheck.ok) return refusal(modelCheck);
 
   try {
     const { value, expiresAt } = await createRealtimeClientSecret({
