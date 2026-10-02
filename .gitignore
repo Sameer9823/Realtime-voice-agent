@@ -32,9 +32,3 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-
-# samai-sdk is kept as a source-only checkout: `src/` is the authored patch work and is committed;
-# everything generated or downloaded is not. `npm run sdk:patch` reinstalls and rebuilds on demand.
-/vendor/samai-sdk/node_modules
-/vendor/samai-sdk/dist
-/vendor/samai-sdk/docs
