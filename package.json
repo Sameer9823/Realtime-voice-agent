@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check:live": "node scripts/live-realtime-check.mjs"
+    "check:live": "node scripts/live-realtime-check.mjs",
+    "docs:index": "node scripts/build-docs-index.mjs"
   },
   "dependencies": {
     "next": "^15.5.4",

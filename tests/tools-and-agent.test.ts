@@ -1,75 +1,63 @@
 import { describe, expect, it } from "vitest";
-import { getCurrentTime, getProductInformation, VOICE_TOOLS } from "@/lib/voice/tools";
+import { VOICE_TOOLS, getWeather, lookupDocs, webSearch } from "@/lib/voice/tools";
 import { createVoiceAgent, turnDetection } from "@/lib/voice/agent";
 import { VOICE_INSTRUCTIONS } from "@/lib/voice/config";
+import { TOOL_NAMES } from "@/lib/tools/registry";
 
 /**
- * Tool and agent-configuration tests.
+ * Agent-configuration and tool-registration tests.
  *
  * These assert the tools are registered through the SDK's own tool system (zod parameters, JSON
  * Schema conversion) rather than through anything bespoke, which is what lets the realtime session
- * execute them mid-conversation.
+ * execute them mid-conversation, and that the browser stubs and the server registry agree.
  */
 
 describe("voice tools", () => {
-  it("registers the demo tools with the agent", () => {
-    expect(VOICE_TOOLS.map((t) => t.name)).toEqual(["get_current_time", "get_product_information"]);
+  it("registers the real tools with the agent", () => {
+    expect(VOICE_TOOLS.map((tool) => tool.name)).toEqual(["web_search", "get_weather", "lookup_docs"]);
   });
 
-  it("get_current_time returns a usable time", () => {
-    const result = getCurrentTime.execute({}) as { iso: string; human: string; timeZone: string };
-    expect(result.iso).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(result.human.length).toBeGreaterThan(0);
-    expect(result.timeZone.length).toBeGreaterThan(0);
-  });
-
-  it("get_current_time accepts an IANA time zone", () => {
-    const result = getCurrentTime.execute({ timeZone: "America/New_York" }) as { timeZone: string };
-    expect(result.timeZone).toBe("America/New_York");
-  });
-
-  it("get_current_time degrades gracefully on an unknown time zone", () => {
-    const result = getCurrentTime.execute({ timeZone: "Not/AZone" }) as { human: string };
-    expect(result.human.length).toBeGreaterThan(0);
-  });
-
-  it("get_product_information returns pricing for a known product", () => {
-    const result = getProductInformation.execute({ product: "atlas" }) as Record<string, unknown>;
-    expect(result.name).toBe("Atlas Analytics");
-    expect(Array.isArray(result.pricing)).toBe(true);
-    expect(result.apiPricing).toBeDefined();
-  });
-
-  it("get_product_information can return only one section", () => {
-    const pricing = getProductInformation.execute({ product: "beacon", detail: "pricing" }) as Record<string, unknown>;
-    expect(pricing.pricing).toBeDefined();
-    expect(pricing.summary).toBeUndefined();
-  });
-
-  it("get_product_information reports unknown products instead of throwing", () => {
-    const result = getProductInformation.execute({ product: "nope" }) as Record<string, unknown>;
-    expect(result.error).toMatch(/no product named/i);
-    expect(Array.isArray(result.available)).toBe(true);
+  it("registers exactly the tools the server can execute", () => {
+    // If these drift, the model will confidently call a tool that 404s at runtime.
+    expect(VOICE_TOOLS.map((tool) => tool.name).sort()).toEqual([...TOOL_NAMES].sort());
   });
 
   it("declares parameters the SDK can validate and serialise", () => {
-    // The realtime session converts these zod schemas to JSON Schema when it registers the tools, so
-    // they must be real zod schemas rather than plain objects.
     for (const tool of VOICE_TOOLS) {
-      const parsed = tool.parameters.safeParse({});
-      expect(parsed.success).toBe(true);
       expect(typeof tool.description).toBe("string");
       expect(tool.description.length).toBeGreaterThan(10);
     }
-    // A real schema rejects the wrong shape rather than silently passing it to execute().
-    expect(getCurrentTime.parameters.safeParse({ timeZone: 42 }).success).toBe(false);
-    expect(getProductInformation.parameters.safeParse({ detail: "not_a_section" }).success).toBe(false);
+  });
+
+  it("rejects wrongly typed arguments before they reach a tool", () => {
+    expect(webSearch.parameters.safeParse({ query: 42 }).success).toBe(false);
+    expect(getWeather.parameters.safeParse({ location: 42 }).success).toBe(false);
+    expect(lookupDocs.parameters.safeParse({ question: "x" }).success).toBe(false);
+  });
+
+  it("accepts well-formed arguments", () => {
+    expect(webSearch.parameters.safeParse({ query: "weather in Lisbon" }).success).toBe(true);
+    expect(getWeather.parameters.safeParse({ location: "Lisbon" }).success).toBe(true);
+    expect(lookupDocs.parameters.safeParse({ question: "how do I start the app" }).success).toBe(true);
+  });
+
+  it("bounds argument length so one turn cannot send an unbounded payload", () => {
+    expect(webSearch.parameters.safeParse({ query: "x".repeat(500) }).success).toBe(false);
+    expect(getWeather.parameters.safeParse({ location: "x".repeat(500) }).success).toBe(false);
+    expect(lookupDocs.parameters.safeParse({ question: "x".repeat(500) }).success).toBe(false);
   });
 
   it("tool names are valid for OpenAI's function-call interface", () => {
     for (const tool of VOICE_TOOLS) {
       expect(tool.name).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
     }
+  });
+
+  it("describes each tool for a spoken audience", () => {
+    // These strings are read by the model, so they should say when to use the tool, not how it works.
+    expect(webSearch.description).toMatch(/current|recent|news/i);
+    expect(getWeather.description).toMatch(/weather/i);
+    expect(lookupDocs.description).toMatch(/documentation/i);
   });
 });
 
@@ -90,7 +78,31 @@ describe("agent definition", () => {
     const instructions = agent.instructions.toLowerCase();
     expect(instructions).toContain("talk over you at any time");
     expect(instructions).toContain("stop talking immediately");
-    expect(VOICE_INSTRUCTIONS).toMatch(/as an ai language model/i);
+  });
+
+  it("keeps the spoken-style rules", () => {
+    const instructions = agent.instructions.toLowerCase();
+    expect(instructions).toContain("short, natural sentences");
+    expect(instructions).toContain("keep responses brief");
+  });
+
+  it("no longer forbids the assistant from acknowledging it is an AI", () => {
+    // Refusing to answer a sincere question is worse than a plain answer, so the hard prohibition
+    // is gone. The softer rules about not narrating internals stay.
+    expect(VOICE_INSTRUCTIONS).not.toMatch(/as an ai language model/i);
+    expect(VOICE_INSTRUCTIONS.toLowerCase()).toContain("don't narrate your reasoning");
+  });
+
+  it("tells the model when to use each tool and not to over-use them", () => {
+    const instructions = agent.instructions.toLowerCase();
+    expect(instructions).toContain("web search");
+    expect(instructions).toContain("weather tool");
+    expect(instructions).toContain("documentation tool");
+    expect(instructions).toContain("only when it would genuinely improve the answer");
+  });
+
+  it("instructs the model to wait for permission on side-effecting tools", () => {
+    expect(agent.instructions.toLowerCase()).toContain("ask the user plainly whether you should go ahead");
   });
 
   it("requests semantic turn detection with interruption enabled", () => {
