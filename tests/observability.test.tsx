@@ -140,6 +140,21 @@ describe("GET /api/health", () => {
     const body = await (await GET()).json();
     expect(body.checks.auth).toBe(true);
   });
+
+  it("reports whether the documentation index is present", async () => {
+    const { GET } = await import("@/app/api/health/route");
+    const body = await (await GET()).json();
+    // The repository ships `content/index.json`, so a healthy checkout reports true. In the Docker
+    // image this is the check that catches the file not being copied.
+    expect(body.checks.docs).toBe(true);
+  });
+
+  it("reports a non-zero uptime as the process ages", async () => {
+    const { GET } = await import("@/app/api/health/route");
+    const body = await (await GET()).json();
+    expect(body.uptimeSeconds).toBeGreaterThanOrEqual(0);
+    expect(typeof body.version).toBe("string");
+  });
 });
 
 describe("UsagePanel", () => {

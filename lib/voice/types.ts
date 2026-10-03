@@ -1,14 +1,14 @@
 /**
  * UI-facing voice types.
  *
- * The conversation state machine itself lives in the SamAI SDK (`ConversationEngine`); these types
+ * The conversation state machine itself lives in `samai-sdk` (`ConversationEngine`); these types
  * mirror it for rendering, plus the transcript model the transcript panel consumes.
  */
 
 import type { ConversationState } from "samai-sdk/voice";
 
 /**
- * States the interface can be in. This is the SamAI SDK's `ConversationState` — the app reads it
+ * States the interface can be in. This is the SDK's `ConversationState` — the app reads it
  * rather than inventing a parallel state machine.
  */
 export type VoiceState = ConversationState;

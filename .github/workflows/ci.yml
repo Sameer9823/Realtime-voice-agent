@@ -1,0 +1,80 @@
+name: CI
+
+# One job, because the four checks are fast and share the same install. Splitting them into a matrix
+# would re-run `npm ci` four times to learn the same thing four times.
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch makes the previous run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # No OPENAI_API_KEY here on purpose. The suite must never need a live credential: a test that
+      # only passes with a real key is a test that only ever runs on one machine.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # The image build is the one thing that cannot be proven by the four checks above, because it
+      # only fails once a Dockerfile exists — and a broken Dockerfile is invisible until then.
+      - name: Build the Docker image
+        run: docker build -t voice-agent:ci .
+
+      # Proves the standalone output actually boots and serves, which `next build` alone does not:
+      # a missing `public/` or `content/` copy only shows up at runtime.
+      - name: Smoke test the container
+        run: |
+          docker run -d --name voice-agent-ci -p 3000:3000 voice-agent:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/api/health > /dev/null; then
+              echo "health check responded"
+              curl -fsS http://localhost:3000/api/health
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "container never became healthy" >&2
+          docker logs voice-agent-ci
+          exit 1
+        # `if: always()` so a failed container still gets logged on the way out.
+        if: ${{ !cancelled() }}
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs voice-agent-ci || true
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f voice-agent-ci || true

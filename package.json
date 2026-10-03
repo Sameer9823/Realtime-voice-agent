@@ -1,8 +1,15 @@
 {
-  "name": "samai-voice",
+  "name": "realtime-voice-agent",
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "description": "A browser voice agent on OpenAI's Realtime API: WebRTC audio, barge-in, server-side tools, and optional auth.",
+  "license": "MIT",
+  "author": "Sameer",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sameer9823/Realtime-voice-agent.git"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

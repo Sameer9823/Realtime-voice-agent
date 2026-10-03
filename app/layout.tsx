@@ -2,8 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SamAI Voice",
-  description: "A live, interruptible voice conversation powered by OpenAI Realtime and the SamAI SDK.",
+  title: "Realtime Voice Agent",
+  description:
+    "A live, interruptible voice conversation in the browser, on OpenAI's Realtime API with the samai-sdk voice runtime.",
 };
 
 export const viewport: Viewport = {

@@ -3,6 +3,13 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
+  /**
+   * Emits a self-contained server bundle with only the node_modules actually imported, which is
+   * what the Dockerfile ships. It also writes a minimal `public` and `.next/static`, so the runtime
+   * image does not need to carry the rest of the repository.
+   */
+  output: "standalone",
+
   // `samai-sdk` ships prebuilt ESM/CJS, so it needs no transpilation. It is included here so that a
   // source checkout resolves cleanly in both dev and build.
   transpilePackages: ["samai-sdk"],

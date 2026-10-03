@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Liveness and configuration probe.
@@ -25,6 +27,10 @@ export async function GET() {
         tavily: Boolean(process.env.TAVILY_API_KEY),
         auth: process.env.REQUIRE_AUTH === "true",
         sentry: Boolean(process.env.SENTRY_DSN),
+        // Whether the documentation index is present. A missing `content/index.json` is the one
+        // failure mode that shows up as a mysteriously unhelpful assistant rather than an error,
+        // so it is worth a line here.
+        docs: existsSync(join(process.cwd(), "content", "index.json")),
       },
     },
     { status: 200 },

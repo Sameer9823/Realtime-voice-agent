@@ -19,7 +19,7 @@ export type HealthReport = {
   status: string;
   uptimeSeconds: number;
   version: string;
-  checks: { openai: boolean; tavily: boolean; auth: boolean; sentry: boolean };
+  checks: { openai: boolean; tavily: boolean; auth: boolean; sentry: boolean; docs?: boolean };
 };
 
 /** Formats a token count compactly: 1234 becomes "1.2k". */

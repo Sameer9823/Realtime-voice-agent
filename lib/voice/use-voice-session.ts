@@ -26,7 +26,7 @@ import type {
 /**
  * Drives one live realtime voice conversation.
  *
- * Orchestration belongs to SamAI SDK: `openaiRealtime()` owns the transport and feeds a
+ * Orchestration belongs to `samai-sdk`: `openaiRealtime()` owns the transport and feeds a
  * `ConversationEngine` state machine, and `runVoiceAgent()` subscribes to the SDK's ordered event
  * stream. This hook owns only what the SDK deliberately leaves to the application — microphone
  * permission, playback, transcript bookkeeping, reconnect, and teardown.
@@ -641,7 +641,7 @@ export function useVoiceSession(options: { personaId?: string; language?: string
     const audioEl = audioElRef.current;
 
     try {
-      // 4. Realtime session over WebRTC, orchestrated by the SamAI SDK.
+      // 4. Realtime session over WebRTC, orchestrated by the SDK.
       const provider = openaiRealtime({
         transport: "webrtc",
         clientSecret: sessionInfo.clientSecret,

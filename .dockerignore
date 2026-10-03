@@ -1,0 +1,43 @@
+# Build context excludes. Anything not needed to produce the server bundle belongs here, because
+# `COPY . .` would otherwise send it to the daemon on every build.
+
+# Dependencies and build output are reinstalled/rebuilt inside the image from the manifests.
+node_modules
+.next
+out
+build
+dist
+
+# Secrets. `.env.local` in particular must never reach a layer — it holds OPENAI_API_KEY.
+.env
+.env.local
+.env.*.local
+
+# Version control and editor state
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Tests and their fixtures: the image builds the app, it does not run the suite.
+tests
+coverage
+vitest.config.ts
+eslint.config.mjs
+
+# Docs that only matter in a checkout. `content/` is NOT here: `content/index.json` is read at
+# runtime by the documentation tool, so the image needs it.
+docs
+scripts
+*.md
+!README.md
+
+# Docker's own files, so a build does not send them to itself.
+Dockerfile
+.dockerignore
+
+# Local build artefacts and caches
+tsconfig.tsbuildinfo
+npm-debug.log*
+.DS_Store
