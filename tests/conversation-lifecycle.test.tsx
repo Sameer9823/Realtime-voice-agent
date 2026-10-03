@@ -30,7 +30,17 @@ function mockSessionRoute(ok = true) {
   const fetchMock = vi.fn(async () => {
     if (!ok) return new Response(JSON.stringify({ error: "auth_failed", message: "no key" }), { status: 500 });
     return new Response(
-      JSON.stringify({ clientSecret: "ek_test", expiresAt: null, model: "gpt-realtime", voice: "marin" }),
+      // `instructions` is resolved by the server; the client only replays it. Without it
+      // `defineVoiceAgent` rejects the config for having no system prompt.
+      JSON.stringify({
+        clientSecret: "ek_test",
+        expiresAt: null,
+        model: "gpt-realtime",
+        voice: "marin",
+        instructions: "You are a voice assistant. Keep answers short.",
+        personaId: "friendly",
+        language: "auto",
+      }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
   });

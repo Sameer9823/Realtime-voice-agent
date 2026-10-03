@@ -9,6 +9,7 @@ import {
   type VoiceSession,
 } from "samai-sdk/voice";
 import { createVoiceAgent, turnDetection } from "./agent";
+import { DEFAULT_LANGUAGE_ID, DEFAULT_PERSONA_ID } from "./config";
 import type {
   SessionResponseBody,
   TranscriptEntry,
@@ -99,7 +100,9 @@ export interface UseVoiceSessionResult {
   stop(): Promise<void>;
 }
 
-export function useVoiceSession(): UseVoiceSessionResult {
+export function useVoiceSession(options: { personaId?: string; language?: string; voice?: string } = {}): UseVoiceSessionResult {
+  const { personaId = DEFAULT_PERSONA_ID, language = DEFAULT_LANGUAGE_ID, voice: requestedVoice } = options;
+
   const [state, setState] = useState<VoiceState>("idle");
   const [error, setError] = useState<VoiceError | null>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
@@ -421,7 +424,8 @@ export function useVoiceSession(): UseVoiceSessionResult {
       const res = await fetch("/api/realtime/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        // Ids only. The server resolves them and hands back the composed prompt.
+        body: JSON.stringify({ personaId, language, voice: requestedVoice }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: VoiceErrorKind; message?: string } | null;
@@ -435,7 +439,8 @@ export function useVoiceSession(): UseVoiceSessionResult {
       return;
     }
 
-    const agent = createVoiceAgent(sessionInfo.model, sessionInfo.voice);
+    // Instructions come from the server so a tampered client cannot substitute its own prompt.
+    const agent = createVoiceAgent(sessionInfo.model, sessionInfo.voice, sessionInfo.instructions);
     const context = ensureAudioContext();
 
     // 3. Playback element first: the provider may hand us the remote stream while connecting, and
@@ -490,7 +495,10 @@ export function useVoiceSession(): UseVoiceSessionResult {
       setError(toVoiceError(err));
       setState("error");
     }
-  }, [attachMeter, ensureAudioContext, handleEvent, releaseAudio, releaseSession]);
+  // Settings are in the dependency list because `connect` reads them to mint the session, and a
+// reconnect re-runs it. Leaving them out would silently reconnect with whatever was selected when
+// the component first mounted.
+}, [attachMeter, ensureAudioContext, handleEvent, language, personaId, releaseAudio, releaseSession, requestedVoice]);
 
   /** Re-establishes the session after a drop, with bounded exponential backoff. */
   const scheduleReconnect = useCallback(() => {

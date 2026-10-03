@@ -25,7 +25,23 @@ async function startSession() {
   installBrowserStubs();
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => new Response(JSON.stringify({ clientSecret: "ek", expiresAt: null, model: "gpt-realtime", voice: "marin" }), { status: 200 })),
+    vi.fn(
+      async () =>
+        new Response(
+          // `instructions` comes from the server in production; the fake must include it or
+          // `defineVoiceAgent` rejects the config for having no system prompt.
+          JSON.stringify({
+            clientSecret: "ek",
+            expiresAt: null,
+            model: "gpt-realtime",
+            voice: "marin",
+            instructions: "You are a voice assistant. Keep answers short.",
+            personaId: "friendly",
+            language: "auto",
+          }),
+          { status: 200 },
+        ),
+    ),
   );
 
   const { result, unmount } = renderHook(() => useVoiceSession());

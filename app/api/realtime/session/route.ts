@@ -2,10 +2,13 @@ import { NextResponse } from "next/server";
 import { createRealtimeClientSecret } from "samai-sdk/voice";
 import {
   CLIENT_SECRET_TTL_SECONDS,
+  DEFAULT_LANGUAGE_ID,
+  DEFAULT_PERSONA_ID,
   DEFAULT_REALTIME_MODEL,
   DEFAULT_REALTIME_VOICE,
-  VOICE_INSTRUCTIONS,
 } from "@/lib/voice/config";
+import { buildInstructions } from "@/lib/voice/instructions";
+import { isLanguageId, isPersonaId, transcriptionHint } from "@/lib/voice/personas";
 import { OPENAI_API_KEY, openAiBaseUrl, realtimeModel, realtimeVoice } from "@/lib/voice/server-config";
 import { checkLimits, checkModel, checkOrigin, checkVoice, clientKey, guardFromEnv, type GuardDecision } from "@/lib/voice/guard";
 import type { SessionErrorBody, SessionRequestBody, SessionResponseBody } from "@/lib/voice/types";
@@ -87,6 +90,13 @@ export async function POST(request: Request) {
   const modelCheck = checkModel(model);
   if (!modelCheck.ok) return refusal(modelCheck);
 
+  // Persona and language arrive as ids from fixed lists. Anything unrecognised falls back to the
+  // default rather than 400ing, because the picker can only ever produce valid ids and a stale
+  // client tab should not be locked out by a version skew.
+  const personaId = isPersonaId(body.personaId) ? body.personaId : DEFAULT_PERSONA_ID;
+  const language = isLanguageId(body.language) ? body.language : DEFAULT_LANGUAGE_ID;
+  const instructions = buildInstructions(personaId, language);
+
   try {
     const { value, expiresAt } = await createRealtimeClientSecret({
       apiKey,
@@ -95,9 +105,9 @@ export async function POST(request: Request) {
       // client does not have to configure the session before its first turn.
       session: {
         // Attached to the secret, so the model already has its instructions and turn detection
-        // before the client's data channel opens. The client re-sends an equivalent session.update
-        // over the data channel; sending it here just removes that from the critical path.
-        instructions: VOICE_INSTRUCTIONS,
+        // before the client's data channel opens. The client re-sends this exact string over the
+        // data channel rather than composing its own.
+        instructions,
         // GA accepts exactly one output modality: `["text"]` or `["audio"]`; sending both is a 400.
         // Audio costs nothing in captioning: the assistant transcript still arrives on
         // `response.output_audio_transcript.delta`.
@@ -105,8 +115,9 @@ export async function POST(request: Request) {
         audio: {
           input: {
             format: { type: "audio/pcm", rate: 24000 },
-            // Required, otherwise no user transcripts are ever produced.
-            transcription: { model: "gpt-4o-transcribe" },
+            // Required, otherwise no user transcripts are ever produced. The language hint biases
+            // recognition toward the chosen language; `auto` sends nothing.
+            transcription: { model: "gpt-4o-transcribe", ...transcriptionHint(language) },
             turn_detection: {
               type: "semantic_vad",
               eagerness: "auto",
@@ -121,7 +132,15 @@ export async function POST(request: Request) {
       baseUrl: openAiBaseUrl,
     });
 
-    return NextResponse.json<SessionResponseBody>({ clientSecret: value, expiresAt, model, voice });
+    return NextResponse.json<SessionResponseBody>({
+      clientSecret: value,
+      expiresAt,
+      model,
+      voice,
+      instructions,
+      personaId,
+      language,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const statusMatch = /\((\d{3})/.exec(message);

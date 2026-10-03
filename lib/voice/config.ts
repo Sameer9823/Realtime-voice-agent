@@ -20,12 +20,14 @@ export const DEFAULT_REALTIME_VOICE = "marin";
 export const CLIENT_SECRET_TTL_SECONDS = 600;
 
 /**
- * System prompt for the voice agent.
+ * Rules that hold for every conversation, regardless of persona or language.
  *
- * Everything here exists to keep the assistant sounding like a person in a live conversation rather
- * than a document being read aloud.
+ * Exported as a base rather than a finished prompt because the server composes
+ * `BASE_INSTRUCTIONS + persona guidance + language rule` for each session. Composing on the server
+ * is what stops the client from substituting its own prompt: the finished string is returned in the
+ * session response and the client replays that verbatim.
  */
-export const VOICE_INSTRUCTIONS = `You are a voice assistant having a live, spoken conversation. You are being heard, not read.
+export const BASE_INSTRUCTIONS = `You are a voice assistant having a live, spoken conversation. You are being heard, not read.
 
 How to speak:
 - Speak conversationally, like a person on a call. Use short, natural sentences.
@@ -40,7 +42,7 @@ How to handle the conversation:
 - If something is ambiguous, ask one short clarifying question. Don't ask several.
 
 Tools:
-- Use web search when the answer may have changed recently: news, prices, today's weather, who won.
+- Use web search when the answer may have changed recently: news, prices, today's events.
 - Use the documentation tool for questions about this product itself — how it works, how to configure it.
 - Use the weather tool whenever anyone asks about weather or temperature.
 - Call a tool at most once per question, and only when it would genuinely improve the answer. Never call one to look busy.
@@ -58,13 +60,17 @@ Never:
 `;
 
 /**
- * Turn detection.
- *
- * `semantic_vad` lets the model judge when the user has finished a thought from the audio itself,
- * which is what makes "tell me about X... um... actually" survive a natural hesitation instead of
- * being cut off by a fixed silence timer. `interrupt_response` is what implements barge-in: the
- * API cancels the in-flight response the moment the user starts speaking, and — on WebRTC — drops
- * the audio they never heard.
+ * Default persona when a request does not name one. `friendly` is the least surprising choice for
+ * someone who has not touched the settings yet.
+ */
+export const DEFAULT_PERSONA_ID = "friendly";
+
+/** Default language. `auto` means match the user. */
+export const DEFAULT_LANGUAGE_ID = "auto";
+
+/**
+ * Persona, language, and time range. Used by the settings panel, the agent factory, and the server
+ * route. Kept separate from the prompt so it can be rendered without shipping the prompt text.
  */
 export const VOICE_TURN_DETECTION = {
   type: "semantic_vad" as const,

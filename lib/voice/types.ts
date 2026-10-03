@@ -66,6 +66,10 @@ export interface VoiceCapabilities {
 export interface SessionRequestBody {
   model?: string;
   voice?: string;
+  /** Persona id from the allowlist. Never free text. */
+  personaId?: string;
+  /** Language id from the allowlist. `auto` means match the user. */
+  language?: string;
 }
 
 export interface SessionResponseBody {
@@ -74,6 +78,13 @@ export interface SessionResponseBody {
   expiresAt: number | null;
   model: string;
   voice: string;
+  /**
+   * The fully composed system prompt. The client replays this verbatim rather than composing its
+   * own, so a modified client cannot smuggle in a different system prompt.
+   */
+  instructions: string;
+  personaId: string;
+  language: string;
 }
 
 export interface SessionErrorBody {

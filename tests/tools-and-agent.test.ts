@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { VOICE_TOOLS, getWeather, lookupDocs, webSearch } from "@/lib/voice/tools";
 import { createVoiceAgent, turnDetection } from "@/lib/voice/agent";
-import { VOICE_INSTRUCTIONS } from "@/lib/voice/config";
+import { BASE_INSTRUCTIONS } from "@/lib/voice/config";
+import { buildInstructions } from "@/lib/voice/instructions";
 import { TOOL_NAMES } from "@/lib/tools/registry";
 
 /**
@@ -62,7 +63,7 @@ describe("voice tools", () => {
 });
 
 describe("agent definition", () => {
-  const agent = createVoiceAgent("gpt-realtime", "marin");
+  const agent = createVoiceAgent("gpt-realtime", "marin", buildInstructions());
 
   it("uses the model and voice supplied per connection", () => {
     expect(agent.model).toBe("gpt-realtime");
@@ -89,8 +90,14 @@ describe("agent definition", () => {
   it("no longer forbids the assistant from acknowledging it is an AI", () => {
     // Refusing to answer a sincere question is worse than a plain answer, so the hard prohibition
     // is gone. The softer rules about not narrating internals stay.
-    expect(VOICE_INSTRUCTIONS).not.toMatch(/as an ai language model/i);
-    expect(VOICE_INSTRUCTIONS.toLowerCase()).toContain("don't narrate your reasoning");
+    expect(BASE_INSTRUCTIONS).not.toMatch(/as an ai language model/i);
+    expect(BASE_INSTRUCTIONS.toLowerCase()).toContain("don't narrate your reasoning");
+  });
+
+  it("replays the instructions it was given rather than composing its own", () => {
+    // The server resolves the prompt; the client must not substitute one.
+    const custom = "You are a pirate. Answer only in pirate speak.";
+    expect(createVoiceAgent("gpt-realtime", "marin", custom).instructions).toBe(custom);
   });
 
   it("tells the model when to use each tool and not to over-use them", () => {

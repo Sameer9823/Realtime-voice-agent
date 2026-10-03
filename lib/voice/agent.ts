@@ -1,22 +1,22 @@
 import { defineVoiceAgent, type VoiceAgentConfig } from "samai-sdk/voice";
-import { VOICE_INSTRUCTIONS, VOICE_TURN_DETECTION } from "./config";
+import { VOICE_TURN_DETECTION } from "./config";
 import { VOICE_TOOLS } from "./tools";
 
 /**
- * The agent definition — SamAI SDK's orchestration layer.
+ * The agent definition — the SDK's orchestration layer.
  *
- * `defineVoiceAgent` is the SDK's entry point for a voice agent: it validates the config, applies
- * the interruption/VAD defaults, and hands back a `VoiceAgentConfig` that `runVoiceAgent` and the
- * realtime provider consume. Everything the model knows about this conversation lives here.
+ * `defineVoiceAgent` validates the config, applies the interruption/VAD defaults, and hands back a
+ * `VoiceAgentConfig` that `runVoiceAgent` and the realtime provider consume.
  *
- * The model and voice are supplied per-connection by the session hook rather than hardcoded, so the
- * server route remains the single source of truth for both.
+ * `instructions` arrives from the session route rather than being composed here. That is what stops
+ * the browser from choosing its own system prompt: the server resolved the persona and language,
+ * and this only replays the string it handed back.
  */
-export function createVoiceAgent(model: string, voice: string): VoiceAgentConfig {
+export function createVoiceAgent(model: string, voice: string, instructions: string): VoiceAgentConfig {
   return defineVoiceAgent({
-    name: "SamAI Voice",
-    instructions: VOICE_INSTRUCTIONS,
+    name: "Voice Agent",
     model,
+    instructions,
     voice: {
       voiceId: voice,
       /**
