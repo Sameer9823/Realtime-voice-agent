@@ -10,6 +10,7 @@ import {
 } from "samai-sdk/voice";
 import { createVoiceAgent, turnDetection } from "./agent";
 import { DEFAULT_LANGUAGE_ID, DEFAULT_PERSONA_ID } from "./config";
+import { useSessionLimits } from "./use-session-limits";
 import type {
   SessionResponseBody,
   TranscriptEntry,
@@ -32,6 +33,19 @@ import type {
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_BASE_DELAY_MS = 800;
 const MICROPHONE_NOISE_FLOOR = 0.02;
+
+/** Idle cut-off, and how long before it the UI warns. */
+const IDLE_TIMEOUT_MS = 60_000;
+const IDLE_WARNING_MS = 45_000;
+
+/** Hard session cap. `NEXT_PUBLIC_MAX_SESSION_MINUTES` is safe to expose: it is a duration. */
+function maxDurationMs(): number | null {
+  const raw = process.env.NEXT_PUBLIC_MAX_SESSION_MINUTES;
+  if (!raw) return 10 * 60_000;
+  const minutes = Number(raw);
+  // A zero or unparseable value means "no cap" rather than "expire immediately".
+  return Number.isFinite(minutes) && minutes > 0 ? minutes * 60_000 : null;
+}
 
 let entryCounter = 0;
 function nextEntryId(): string {
@@ -96,6 +110,26 @@ export interface UseVoiceSessionResult {
   assistantLevel(): number;
   /** True while a tool call is executing. */
   toolRunning: boolean;
+  /** True when the microphone track is disabled. */
+  muted: boolean;
+  /** When true the microphone only captures while the user holds the push-to-talk key. */
+  pushToTalk: boolean;
+  /** True while the push-to-talk key is held. */
+  talking: boolean;
+  /** Milliseconds left before the session's hard cap, or null when uncapped. */
+  remainingMs: number | null;
+  /** True once silence has passed the warning threshold. */
+  idleWarning: boolean;
+  /** True until the user has interacted once, which iOS Safari requires before audio plays. */
+  needsAudioUnlock: boolean;
+  /** Clears `needsAudioUnlock`. Safe to call when it is already false. */
+  unlockAudio(): void;
+  setMuted(muted: boolean): void;
+  setPushToTalk(enabled: boolean): void;
+  /** Drives push-to-talk from a key press or release. */
+  setTalking(talking: boolean): void;
+  /** Sends a typed turn. Returns false when no session is live. */
+  sendText(text: string): boolean;
   start(): Promise<void>;
   stop(): Promise<void>;
 }
@@ -108,6 +142,16 @@ export function useVoiceSession(options: { personaId?: string; language?: string
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [toolRunning, setToolRunning] = useState(false);
   const [isActive, setIsActive] = useState(false);
+  const [muted, setMutedState] = useState(false);
+  const [pushToTalk, setPushToTalkState] = useState(false);
+  const [talking, setTalkingState] = useState(false);
+  const [needsAudioUnlock, setNeedsAudioUnlock] = useState(true);
+
+  /** Mirror of `muted` for the audio plumbing, which runs outside React. */
+  const mutedRef = useRef(false);
+  /** When push-to-talk is on, the track only captures while this is true. */
+  const talkingRef = useRef(false);
+  const pushToTalkRef = useRef(false);
 
   const capabilitiesRef = useRef<VoiceCapabilities | null>(null);
   if (capabilitiesRef.current === null) capabilitiesRef.current = detectCapabilities();
@@ -133,10 +177,104 @@ export function useVoiceSession(options: { personaId?: string; language?: string
   const reconnectAttemptRef = useRef(0);
   /** Reconnect is referenced from the event handler, which is created before it. A ref breaks the cycle. */
   const reconnectRef = useRef<() => void>(() => {});
+  /** `stop` is referenced by the limit callbacks, which are created before `stop` exists. */
+  const stopRef = useRef<() => Promise<void>>(async () => {});
   /** Streaming transcript entry id per role. */
   const streamingRef = useRef<{ user?: string; assistant?: string }>({});
 
+  // ── microphone gating ─────────────────────────────────────────────────────
+
+  /**
+   * Decides whether the microphone track should be capturing.
+   *
+   * Muting disables the track rather than closing it, so unmuting does not need a new permission
+   * grant and the WebRTC sender keeps working. Push-to-talk is the same mechanism with the gate
+   * driven by a key instead of a button.
+   */
+  const applyMicGate = useCallback(() => {
+    const track = micStreamRef.current?.getAudioTracks()[0];
+    if (!track) return;
+    const shouldCapture = !mutedRef.current && (!pushToTalkRef.current || talkingRef.current);
+    if (track.enabled !== shouldCapture) track.enabled = shouldCapture;
+  }, []);
+
+  const setMuted = useCallback(
+    (next: boolean) => {
+      mutedRef.current = next;
+      setMutedState(next);
+      applyMicGate();
+    },
+    [applyMicGate],
+  );
+
+  const setPushToTalk = useCallback(
+    (next: boolean) => {
+      pushToTalkRef.current = next;
+      setPushToTalkState(next);
+      if (!next) {
+        // Leaving push-to-talk must not leave the microphone stuck open.
+        talkingRef.current = false;
+        setTalkingState(false);
+      }
+      applyMicGate();
+    },
+    [applyMicGate],
+  );
+
+  const setTalking = useCallback(
+    (next: boolean) => {
+      if (!pushToTalkRef.current) return;
+      talkingRef.current = next;
+      setTalkingState(next);
+      applyMicGate();
+    },
+    [applyMicGate],
+  );
+
+  const unlockAudio = useCallback(() => setNeedsAudioUnlock(false), []);
+
+  /** Sends a typed turn through the SDK, which creates the conversation item itself. */
+  const sendText = useCallback((text: string): boolean => {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    const session = sessionRef.current;
+    // sendText is optional on VoiceSession; a provider without it cannot accept typed turns.
+    if (!session?.sendText) return false;
+    try {
+      session.sendText(trimmed);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   // ── transcript bookkeeping ────────────────────────────────────────────────
+
+  const limits = useSessionLimits({
+    maxDurationMs: maxDurationMs(),
+    idleTimeoutMs: IDLE_TIMEOUT_MS,
+    idleWarningMs: IDLE_WARNING_MS,
+    onMaxReached: () => {
+      setError({
+        kind: "session_failed",
+        message: "This conversation reached its time limit. Start a new one to keep going.",
+        retryable: false,
+      });
+      void stopRef.current();
+    },
+    onIdleEnd: () => {
+      setError({
+        kind: "session_failed",
+        message: "Ended after a period of silence.",
+        retryable: false,
+      });
+      void stopRef.current();
+    },
+  });
+
+  // Bound to locals so the callbacks below depend on the individual stable functions rather than on
+  // the limits object, which is a new value on every render.
+  const { begin: beginLimits, cancel: cancelLimits, markActivity, pause: pauseLimits, resume: resumeLimits } = limits;
 
   const finalizeAssistant = useCallback((interrupted: boolean) => {
     const id = streamingRef.current.assistant;
@@ -226,6 +364,17 @@ export function useVoiceSession(options: { personaId?: string; language?: string
 
   const handleEvent = useCallback(
     (event: VoiceAgentEvent) => {
+      // Any real conversation activity counts as activity for the idle timer. A session where
+      // nobody is speaking is exactly the case the timer exists to catch.
+      if (
+        event.type === "user-speech-started" ||
+        event.type === "user-speech-ended" ||
+        event.type === "assistant-transcript-delta" ||
+        event.type === "agent-speech-started"
+      ) {
+        markActivity();
+      }
+
       switch (event.type) {
         case "connection-state": {
           switch (event.state) {
@@ -233,12 +382,17 @@ export function useVoiceSession(options: { personaId?: string; language?: string
               reconnectAttemptRef.current = 0;
               setError(null);
               setState("listening");
+              // The drop and the recovery are not the user's silence, so the idle clock restarts.
+              resumeLimits();
               break;
             case "connecting":
               setState("connecting");
               break;
             case "reconnecting":
               setState("reconnecting");
+              // Freeze the limits while the connection is down, so a network drop is never
+              // mistaken for an abandoned conversation and ended by the idle timeout.
+              pauseLimits();
               break;
             case "failed":
               // A live conversation that dropped should try to come back on its own.
@@ -342,7 +496,7 @@ export function useVoiceSession(options: { personaId?: string; language?: string
           break;
       }
     },
-    [finalizeAssistant, finalizeUser],
+    [finalizeAssistant, finalizeUser, markActivity, pauseLimits, resumeLimits],
   );
 
   // ── teardown ──────────────────────────────────────────────────────────────
@@ -417,6 +571,8 @@ export function useVoiceSession(options: { personaId?: string; language?: string
       return;
     }
     micStreamRef.current = micStream;
+    // Honour the mute and push-to-talk state before the provider starts reading the track.
+    applyMicGate();
 
     // 2. Ephemeral credential from our own server. The long-lived key never leaves the server.
     let sessionInfo: SessionResponseBody;
@@ -498,7 +654,7 @@ export function useVoiceSession(options: { personaId?: string; language?: string
   // Settings are in the dependency list because `connect` reads them to mint the session, and a
 // reconnect re-runs it. Leaving them out would silently reconnect with whatever was selected when
 // the component first mounted.
-}, [attachMeter, ensureAudioContext, handleEvent, language, personaId, releaseAudio, releaseSession, requestedVoice]);
+}, [applyMicGate, attachMeter, ensureAudioContext, handleEvent, language, personaId, releaseAudio, releaseSession, requestedVoice]);
 
   /** Re-establishes the session after a drop, with bounded exponential backoff. */
   const scheduleReconnect = useCallback(() => {
@@ -516,6 +672,9 @@ export function useVoiceSession(options: { personaId?: string; language?: string
 
     reconnectAttemptRef.current = attempt + 1;
     setState("reconnecting");
+    // Also paused here rather than only on a `reconnecting` event: a failed connect enters the
+    // backoff loop without ever emitting that event.
+    pauseLimits();
 
     reconnectTimerRef.current = setTimeout(async () => {
       reconnectTimerRef.current = null;
@@ -525,7 +684,7 @@ export function useVoiceSession(options: { personaId?: string; language?: string
       releaseAudio();
       await connect();
     }, RECONNECT_BASE_DELAY_MS * 2 ** attempt);
-  }, [connect, releaseAudio, releaseSession]);
+  }, [connect, pauseLimits, releaseAudio, releaseSession]);
 
   reconnectRef.current = scheduleReconnect;
 
@@ -540,22 +699,30 @@ export function useVoiceSession(options: { personaId?: string; language?: string
     setTranscript([]);
     streamingRef.current = {};
     setToolRunning(false);
+    // Push-to-talk starts closed, and mute carries across sessions deliberately: a user who muted
+    // to have a quiet moment expects the next session to stay muted.
+    talkingRef.current = false;
+    setTalkingState(false);
     setState("connecting");
+    beginLimits();
     await connect();
-  }, [cancelReconnect, connect]);
+  }, [beginLimits, cancelReconnect, connect]);
 
   const stop = useCallback(async () => {
     activeRef.current = false;
     assistantSpeakingRef.current = false;
     setIsActive(false);
     cancelReconnect();
+    cancelLimits();
     await releaseSession();
     releaseAudio();
     streamingRef.current = {};
     setToolRunning(false);
     setError(null);
     setState("idle");
-  }, [cancelReconnect, releaseAudio, releaseSession]);
+  }, [cancelLimits, cancelReconnect, releaseAudio, releaseSession]);
+
+  stopRef.current = stop;
 
   // ── unmount ────────────────────────────────────────────────────────────────
 
@@ -591,6 +758,17 @@ export function useVoiceSession(options: { personaId?: string; language?: string
     micLevel: () => micMeterRef.current?.read() ?? 0,
     assistantLevel: () => assistantMeterRef.current?.read() ?? 0,
     toolRunning,
+    muted,
+    pushToTalk,
+    talking,
+    remainingMs: limits.remainingMs,
+    idleWarning: limits.idleWarning,
+    needsAudioUnlock,
+    unlockAudio,
+    setMuted,
+    setPushToTalk,
+    setTalking,
+    sendText,
     start,
     stop,
   };

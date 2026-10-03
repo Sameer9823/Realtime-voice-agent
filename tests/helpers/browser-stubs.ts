@@ -11,6 +11,11 @@ import { vi } from "vitest";
 
 export class FakeMediaStreamTrack {
   stopped = false;
+  /**
+   * Capture flag, as on a real `MediaStreamTrack`. Mute and push-to-talk both gate capture by
+   * flipping this rather than closing the stream, so the stubs have to model it.
+   */
+  enabled = true;
   constructor(public kind: string = "audio") {}
   stop() {
     this.stopped = true;

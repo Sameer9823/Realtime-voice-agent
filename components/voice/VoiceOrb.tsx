@@ -54,6 +54,23 @@ export function VoiceOrb({ state, micLevel, assistantLevel, size = 220, active }
   const assistantRef = useRef(assistantLevel);
   const activeRef = useRef(active);
 
+  /**
+   * `prefers-reduced-motion` is read into a ref rather than state: it is a media query that can
+   * change at runtime, and the canvas loop needs the current value on every frame. Using state
+   * would re-run the whole effect on every toggle.
+   */
+  const reducedMotionRef = useRef(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    reducedMotionRef.current = query.matches;
+    const onChange = (event: MediaQueryListEvent) => {
+      reducedMotionRef.current = event.matches;
+    };
+    query.addEventListener?.("change", onChange);
+    return () => query.removeEventListener?.("change", onChange);
+  }, []);
+
   stateRef.current = state;
   micRef.current = micLevel;
   assistantRef.current = assistantLevel;
@@ -98,8 +115,12 @@ export function VoiceOrb({ state, micLevel, assistantLevel, size = 220, active }
       const cx = size / 2;
       const cy = size / 2;
       const baseRadius = size * 0.28;
-      const breath = Math.sin(time * 1.4) * 0.5 + 0.5; // 0–1
-      const pulseBoost = targetPulse * size * 0.05;
+      // With reduced motion the orb holds still: no idle breathing, no state-change flash, and the
+      // amplitude is shown as a static radius change rather than travelling ripples. The status is
+      // still legible from the colour and the label on the canvas.
+      const reduced = reducedMotionRef.current;
+      const breath = reduced ? 0.5 : Math.sin(time * 1.4) * 0.5 + 0.5; // 0–1
+      const pulseBoost = reduced ? 0 : targetPulse * size * 0.05;
       const radius = baseRadius * (1 + current.breath * breath + displayLevel * 0.28) + pulseBoost;
 
       ctx.clearRect(0, 0, size, size);
@@ -128,7 +149,7 @@ export function VoiceOrb({ state, micLevel, assistantLevel, size = 220, active }
       ctx.fill();
 
       // Reactive ripples radiating from the core when there's real audio energy.
-      if (activeRef.current && displayLevel > 0.02) {
+      if (activeRef.current && displayLevel > 0.02 && !reduced) {
         const rings = 3;
         for (let i = 0; i < rings; i++) {
           const phase = (time * 0.9 + i / rings) % 1;
@@ -171,9 +192,13 @@ export function VoiceOrb({ state, micLevel, assistantLevel, size = 220, active }
       />
       {isTurn && (
         <span className="orb-badge" aria-hidden="true">
-          {state === "user_speaking" ? "You" : "SamAI"}
+          {state === "user_speaking" ? "You" : "Assistant"}
         </span>
       )}
+      {/* Status is available as text too, so it does not depend on reading the canvas. */}
+      <span className="visually-hidden" role="status" aria-live="polite">
+        {theme.label}
+      </span>
     </div>
   );
 }

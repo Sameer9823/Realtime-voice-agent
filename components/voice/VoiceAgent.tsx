@@ -5,9 +5,13 @@ import { VoiceOrb } from "./VoiceOrb";
 import { VoiceVisualizer } from "./VoiceVisualizer";
 import { VoiceStatus } from "./VoiceStatus";
 import { VoiceControls } from "./VoiceControls";
+import { ExtendedControls } from "./ExtendedControls";
+import { AudioUnlockPrompt } from "./AudioUnlockPrompt";
 import { VoiceTranscript } from "./VoiceTranscript";
 import { VoiceSettings } from "./VoiceSettings";
 import { DEFAULT_LANGUAGE_ID, DEFAULT_PERSONA_ID } from "@/lib/voice/config";
+import { useMediaDevices } from "@/lib/voice/use-media-devices";
+import { formatCountdown } from "@/lib/voice/use-session-limits";
 import { useVoiceSession } from "@/lib/voice/use-voice-session";
 
 /**
@@ -22,9 +26,33 @@ export function VoiceAgentScreen() {
   const [language, setLanguage] = useState(DEFAULT_LANGUAGE_ID);
   const [voice, setVoice] = useState("marin");
 
-  const { state, turnOwner, isActive, error, capabilities, transcript, micLevel, assistantLevel, toolRunning, start, stop } =
-    useVoiceSession({ personaId, language, voice });
+  const session = useVoiceSession({ personaId, language, voice });
+  const {
+    state,
+    turnOwner,
+    isActive,
+    error,
+    capabilities,
+    transcript,
+    micLevel,
+    assistantLevel,
+    toolRunning,
+    muted,
+    pushToTalk,
+    talking,
+    remainingMs,
+    idleWarning,
+    needsAudioUnlock,
+    unlockAudio,
+    setMuted,
+    setPushToTalk,
+    setTalking,
+    sendText,
+    start,
+    stop,
+  } = session;
 
+  const devices = useMediaDevices();
   const [starting, setStarting] = useState(false);
 
   const handleStart = useCallback(async () => {
@@ -36,11 +64,23 @@ export function VoiceAgentScreen() {
     }
   }, [start]);
 
+  // Device labels only appear after a permission grant, so the list is refreshed once the
+  // microphone is actually open rather than on mount.
+  const handleSessionActive = useCallback(() => {
+    void devices.refresh();
+  }, [devices]);
+
+  const [wasActive, setWasActive] = useState(false);
+  if (wasActive !== isActive) {
+    setWasActive(isActive);
+    if (isActive) handleSessionActive();
+  }
+
   return (
     <main className="shell">
       <div className="stage">
         <header className="stage-header">
-          <h1 className="brand">SamAI Voice</h1>
+          <h1 className="brand">Voice Agent</h1>
           <p className="tagline">A live, interruptible conversation. Just talk.</p>
         </header>
 
@@ -49,6 +89,8 @@ export function VoiceAgentScreen() {
         </div>
 
         <VoiceVisualizer level={turnOwner === "assistant" ? assistantLevel : micLevel} active={isActive} />
+
+        <AudioUnlockPrompt visible={needsAudioUnlock && isActive} onUnlock={unlockAudio} />
 
         <VoiceStatus state={state} error={error} toolRunning={toolRunning} active={isActive} />
 
@@ -62,6 +104,22 @@ export function VoiceAgentScreen() {
           }
           onStart={handleStart}
           onEnd={stop}
+        />
+
+        <ExtendedControls
+          active={isActive}
+          muted={muted}
+          pushToTalk={pushToTalk}
+          talking={talking}
+          transcript={transcript}
+          devices={devices}
+          remainingMs={remainingMs}
+          idleWarning={idleWarning}
+          onMutedChange={setMuted}
+          onPushToTalkChange={setPushToTalk}
+          onTalkingChange={setTalking}
+          onSendText={sendText}
+          formatCountdown={formatCountdown}
         />
 
         <VoiceTranscript entries={transcript} agentName="Assistant" />
