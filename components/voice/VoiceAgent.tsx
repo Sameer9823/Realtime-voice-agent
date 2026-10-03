@@ -1,11 +1,16 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { VoiceOrb } from "./VoiceOrb";
-import { VoiceVisualizer } from "./VoiceVisualizer";
-import { VoiceStatus } from "./VoiceStatus";
+import { VoiceStatus, TurnIndicator } from "./VoiceStatus";
 import { VoiceControls } from "./VoiceControls";
-import { ExtendedControls } from "./ExtendedControls";
+import {
+  DeviceSelectors,
+  SessionNotices,
+  SessionToolbar,
+  TextComposer,
+  TranscriptActions,
+} from "./ExtendedControls";
 import { AudioUnlockPrompt } from "./AudioUnlockPrompt";
 import { VoiceTranscript } from "./VoiceTranscript";
 import { VoiceSettings } from "./VoiceSettings";
@@ -19,8 +24,16 @@ import { useVoiceSession } from "@/lib/voice/use-voice-session";
 /**
  * The voice conversation screen.
  *
- * Owns nothing but layout: all conversation behaviour comes from `useVoiceSession`, which drives the
- * realtime session.
+ * Two panes. The stage is the live instrument: the ring, whose turn it is, what the assistant is
+ * doing, the one button that matters, and the session controls. The conversation pane is the record,
+ * always open, because reading back what was said is half the product. On a phone they stack.
+ *
+ * Owns nothing but layout and the settings chosen before a session exists: all conversation
+ * behaviour comes from `useVoiceSession`.
+ *
+ * The control pieces are composed here rather than rendering `ExtendedControls`, because the composer
+ * belongs at the foot of the conversation pane and the copy/download actions in its header. Rendering
+ * the whole set as well would duplicate both.
  */
 export function VoiceAgentScreen({ authRequired = false }: { authRequired?: boolean }) {
   // Settings live here rather than in the hook because they are chosen before a session exists.
@@ -58,6 +71,19 @@ export function VoiceAgentScreen({ authRequired = false }: { authRequired?: bool
   const devices = useMediaDevices();
   const [starting, setStarting] = useState(false);
 
+  /**
+   * Capability detection reads browser APIs that do not exist while the page is being rendered on
+   * the server, so it reports "unsupported" there and "supported" once React hydrates. Rendering
+   * that difference straight into the markup produced a hydration mismatch: the server emitted a
+   * disabled primary button and an "unsupported" hint that the client immediately threw away.
+   *
+   * Gating on `mounted` makes the first client render agree with the server, and the capability
+   * result lands a frame later — long before anyone could press the button.
+   */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const unsupported = mounted && !capabilities.supported;
+
   const handleStart = useCallback(async () => {
     setStarting(true);
     try {
@@ -69,29 +95,24 @@ export function VoiceAgentScreen({ authRequired = false }: { authRequired?: bool
 
   // Device labels only appear after a permission grant, so the list is refreshed once the
   // microphone is actually open rather than on mount.
-  const handleSessionActive = useCallback(() => {
-    void devices.refresh();
-  }, [devices]);
-
   const [wasActive, setWasActive] = useState(false);
   if (wasActive !== isActive) {
     setWasActive(isActive);
-    if (isActive) handleSessionActive();
+    if (isActive) void devices.refresh();
   }
 
   return (
-    <main className="shell">
+    <main className="app">
       <div className="stage">
         <header className="stage-header">
-          <h1 className="brand">Voice Agent</h1>
+          <h1 className="brand">Realtime Voice Agent</h1>
           <p className="tagline">A live, interruptible conversation. Just talk.</p>
         </header>
 
-        <div className="orb-area">
+        <div className="ring-area">
           <VoiceOrb state={state} micLevel={micLevel} assistantLevel={assistantLevel} active={isActive} />
+          <TurnIndicator turnOwner={isActive ? turnOwner : "none"} />
         </div>
-
-        <VoiceVisualizer level={turnOwner === "assistant" ? assistantLevel : micLevel} active={isActive} />
 
         <AudioUnlockPrompt visible={needsAudioUnlock && isActive} onUnlock={unlockAudio} />
 
@@ -101,31 +122,36 @@ export function VoiceAgentScreen({ authRequired = false }: { authRequired?: bool
           active={isActive}
           state={state}
           busy={starting || state === "connecting" || state === "reconnecting"}
-          disabled={!capabilities.supported}
+          disabled={unsupported}
           disabledReason={
-            capabilities.supported ? undefined : "This browser isn't supported. Try the latest Chrome, Edge, or Safari."
+            unsupported ? "This browser isn't supported. Try the latest Chrome, Edge, or Safari." : undefined
           }
           onStart={handleStart}
           onEnd={stop}
         />
 
-        <ExtendedControls
-          active={isActive}
-          muted={muted}
-          pushToTalk={pushToTalk}
-          talking={talking}
-          transcript={transcript}
-          devices={devices}
-          remainingMs={remainingMs}
-          idleWarning={idleWarning}
-          onMutedChange={setMuted}
-          onPushToTalkChange={setPushToTalk}
-          onTalkingChange={setTalking}
-          onSendText={sendText}
-          formatCountdown={formatCountdown}
-        />
+        {isActive && (
+          <div className="controls-stack">
+            <SessionToolbar
+              active={isActive}
+              muted={muted}
+              pushToTalk={pushToTalk}
+              talking={talking}
+              onMutedChange={setMuted}
+              onPushToTalkChange={setPushToTalk}
+              onTalkingChange={setTalking}
+            />
 
-        <VoiceTranscript entries={transcript} agentName="Assistant" />
+            <DeviceSelectors active={isActive} devices={devices} />
+
+            <SessionNotices
+              active={isActive}
+              remainingMs={remainingMs}
+              idleWarning={idleWarning}
+              formatCountdown={formatCountdown}
+            />
+          </div>
+        )}
 
         <VoiceSettings
           personaId={personaId}
@@ -137,7 +163,7 @@ export function VoiceAgentScreen({ authRequired = false }: { authRequired?: bool
           onVoiceChange={setVoice}
         />
 
-        {!capabilities.supported && (
+        {unsupported && (
           <p className="capability-note" role="status">
             Missing: {capabilities.missing.join(", ")}.
           </p>
@@ -147,6 +173,13 @@ export function VoiceAgentScreen({ authRequired = false }: { authRequired?: bool
 
         {authRequired && <SignOutButton />}
       </div>
+
+      <VoiceTranscript
+        entries={transcript}
+        agentName="Assistant"
+        actions={<TranscriptActions transcript={transcript} />}
+        composer={<TextComposer active={isActive} onSendText={sendText} />}
+      />
     </main>
   );
 }

@@ -1,12 +1,17 @@
 "use client";
 
 import type { VoiceState } from "@/lib/voice/types";
+import { MicIcon, StopIcon } from "./icons";
 
 /**
- * Start/end controls.
+ * The primary control: one large labelled pill that starts or ends the conversation.
  *
- * The microphone button is the only required interaction. There is deliberately no "stop speaking"
- * button: barge-in is handled by the conversation, not by the user pressing anything.
+ * Previously this was an icon-only circle plus a separate text link, and both were named "End
+ * conversation" while a session was live. That is a duplicated accessible name and two targets for
+ * one action, so it is now one button whose label is its own visible text.
+ *
+ * There is deliberately no "stop speaking" control. Barge-in belongs to the conversation: the user
+ * talks, and the assistant stops.
  */
 
 export interface VoiceControlsProps {
@@ -22,41 +27,25 @@ export interface VoiceControlsProps {
 export function VoiceControls({ active, state, busy, disabled, disabledReason, onStart, onEnd }: VoiceControlsProps) {
   const connecting = state === "connecting" || state === "reconnecting";
 
+  // While connecting there is nothing useful to press, so the label says what is happening and the
+  // button is disabled — rather than the button quietly switching to "End" and implying it would
+  // cancel something that has not finished starting.
+  const label = connecting ? "Connecting…" : active ? "End conversation" : "Start conversation";
+
   return (
-    <div className="controls">
+    <div className="primary">
       <button
         type="button"
-        className={`mic-button ${active ? "mic-button-live" : ""}`}
+        className="primary-button"
+        data-variant={active ? "end" : "start"}
         onClick={active ? onEnd : onStart}
-        disabled={disabled || (busy && !active)}
-        aria-pressed={active}
+        disabled={disabled || connecting || (busy && !active)}
         aria-label={active ? "End conversation" : "Start conversation"}
-        title={active ? "End conversation" : "Start conversation"}
       >
-        <span className="mic-ring" aria-hidden="true" />
-        {active ? (
-          <svg viewBox="0 0 24 24" className="mic-icon" aria-hidden="true">
-            <rect x="6.5" y="6.5" width="11" height="11" rx="2.5" />
-          </svg>
-        ) : (
-          <svg viewBox="0 0 24 24" className="mic-icon" aria-hidden="true">
-            <path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3Z" />
-            <path d="M5.5 11a.75.75 0 0 1 1.5 0 5 5 0 0 0 10 0 .75.75 0 0 1 1.5 0 6.5 6.5 0 0 1-5.75 6.45V20a.75.75 0 0 1-1.5 0v-2.55A6.5 6.5 0 0 1 5.5 11Z" />
-          </svg>
-        )}
+        {active ? <StopIcon /> : <MicIcon />}
+        {label}
       </button>
-
-      <div className="controls-label">
-        {connecting ? (
-          <span className="controls-hint">{state === "reconnecting" ? "Reconnecting…" : "Connecting…"}</span>
-        ) : active ? (
-          <button type="button" className="text-button" onClick={onEnd}>
-            End conversation
-          </button>
-        ) : (
-          <span className="controls-hint">{disabled ? (disabledReason ?? "Unavailable") : "Start conversation"}</span>
-        )}
-      </div>
+      {disabled && disabledReason && <p className="status-hint">{disabledReason}</p>}
     </div>
   );
 }

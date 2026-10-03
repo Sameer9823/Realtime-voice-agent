@@ -1,16 +1,86 @@
+/* ==========================================================================
+   Realtime Voice Agent
+
+   One rule governs the colour system: ultramarine means you, amber means the
+   assistant. That holds in the ring, the turn indicator, and the transcript, so
+   whose turn it is is legible at a glance without reading a word. Every other
+   state — connecting, thinking, idle — stays neutral, precisely so it does not
+   compete with those two meanings.
+
+   Contrast was checked rather than eyeballed. Amber #D68610 on the light
+   background is only 2.5:1, which is fine for a ring stroke and unreadable as
+   text, so --assistant-ink is a darkened amber for text and --assistant keeps
+   the specified colour for marks. The same trick is why --ink-muted exists.
+   ========================================================================== */
+
 :root {
-  --bg: #0b0d14;
-  --bg-soft: #12151f;
-  --panel: rgba(255, 255, 255, 0.04);
-  --border: rgba(255, 255, 255, 0.09);
-  --text: #e8ecf5;
-  --muted: #9aa4bb;
-  --accent: #7eacdc;
-  --danger: #dc8484;
-  --radius: 18px;
+  color-scheme: light;
+
+  --bg: #edf0f4;
+  --surface: #ffffff;
+  --surface-sunken: #e4e8ef;
+  --line: #c6cddb;
+  --line-strong: #aab3c4;
+
+  --ink: #1b1f3b;
+  --ink-muted: #4a5070;
+
+  --user: #3550e8;
+  --assistant: #d68610;
+  --danger: #c23b3b;
+
+  /* Text-safe variants. The plain --user and --assistant tokens are for marks.
+
+     --danger-ink is darker than --danger because the error message sits on --surface-sunken, not
+     --bg: #C23B3B reaches only 4.3:1 there, just under the 4.5:1 floor. #B32B2B clears it at 5.1:1. */
+  --assistant-ink: #8a5405;
+  --danger-ink: #b32b2b;
+
+  --accent: var(--user);
+
+  --font-ui: "Bricolage Grotesque Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-transcript: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+
+  --gap: 1rem;
+  --pad: clamp(1rem, 3vw, 1.75rem);
+
+  --touch: 44px;
 }
 
-* {
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --bg: #0f1220;
+    --surface: #171b2e;
+    --surface-sunken: #0b0e1a;
+    --line: #2b3150;
+    --line-strong: #3d4468;
+
+    --ink: #e8eaf6;
+    --ink-muted: #9ba3c7;
+
+    --user: #7c93ff;
+    --assistant: #f5b655;
+    --danger: #f07878;
+
+    --assistant-ink: #f5b655;
+    --danger-ink: #f07878;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -18,622 +88,42 @@ html,
 body {
   margin: 0;
   padding: 0;
-  min-height: 100%;
-  background: var(--bg);
-  color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
 }
 
 body {
-  /* A soft, static backdrop. The orb supplies the motion. */
-  background-image: radial-gradient(1100px 620px at 50% -10%, rgba(70, 96, 148, 0.22), transparent 62%);
-  background-attachment: fixed;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.5;
+  /* Long unbroken strings from a transcript must not force a horizontal scrollbar
+     at 320px. */
+  overflow-wrap: break-word;
 }
 
-.shell {
-  min-height: 100dvh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 16px 48px;
-}
-
-.stage {
-  width: 100%;
-  max-width: 560px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-}
-
-.stage-header {
-  text-align: center;
-}
-
-.brand {
+h1,
+h2,
+h3,
+p {
   margin: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
 }
 
-.tagline {
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: 0.92rem;
-}
-
-/* ── Orb ──────────────────────────────────────────────────────────────── */
-
-.orb-area {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 0 4px;
-}
-
-.orb-wrap {
-  position: relative;
-  display: grid;
-  place-items: center;
-}
-
-.orb-wrap canvas {
-  display: block;
-}
-
-.orb-badge {
-  position: absolute;
-  bottom: 6%;
-  font-size: 0.72rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-  background: rgba(11, 13, 20, 0.55);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 3px 10px;
-}
-
-/* ── Status ────────────────────────────────────────────────────────────── */
-
-.status {
-  text-align: center;
-  min-height: 44px;
-}
-
-.status-message {
-  margin: 0;
-  font-size: 0.98rem;
-}
-
-.status-tool {
-  color: var(--accent);
-}
-
-.status-hint,
-.controls-hint,
-.capability-note {
-  margin: 5px 0 0;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.status-error .status-message {
-  color: var(--danger);
-}
-
-.capability-note {
-  text-align: center;
-}
-
-/* ── Controls ──────────────────────────────────────────────────────────── */
-
-.controls {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-.mic-button {
-  position: relative;
-  width: 68px;
-  height: 68px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--text);
-  cursor: pointer;
-  transition: transform 140ms ease, background 180ms ease, border-color 180ms ease;
-}
-
-.mic-button:hover:not(:disabled) {
-  transform: scale(1.04);
-  background: rgba(255, 255, 255, 0.07);
-}
-
-.mic-button:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-.mic-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.mic-button:focus-visible,
-.text-button:focus-visible,
-.transcript-toggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-}
-
-/* Expanding ring marks a live session. Static, slow, and subtle — it is a state cue, not decoration. */
-.mic-button-live {
-  border-color: rgba(126, 172, 220, 0.5);
-  background: rgba(126, 172, 220, 0.12);
-}
-
-.mic-button-live .mic-ring {
-  position: absolute;
-  inset: -6px;
-  border-radius: 50%;
-  border: 1px solid rgba(126, 172, 220, 0.28);
-  animation: pulse 2.8s ease-out infinite;
-  pointer-events: none;
-}
-
-@keyframes pulse {
-  0% {
-    transform: scale(0.94);
-    opacity: 0.7;
-  }
-  70% {
-    transform: scale(1.18);
-    opacity: 0;
-  }
-  100% {
-    transform: scale(1.18);
-    opacity: 0;
-  }
-}
-
-.mic-icon {
-  width: 28px;
-  height: 28px;
-  fill: currentColor;
-}
-
-.mic-button-live .mic-icon {
-  fill: var(--accent);
-}
-
-.controls-label {
-  min-height: 20px;
-}
-
-.text-button {
-  background: none;
-  border: none;
-  color: var(--muted);
+button,
+input,
+select,
+textarea {
   font: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
-  padding: 4px 8px;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  color: inherit;
 }
 
-.text-button:hover {
-  color: var(--text);
-}
-
-/* ── Transcript ────────────────────────────────────────────────────────── */
-
-.transcript {
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel);
-  overflow: hidden;
-}
-
-.transcript-toggle {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 13px 16px;
-  background: none;
-  border: none;
-  color: var(--text);
-  font: inherit;
-  font-size: 0.9rem;
-  cursor: pointer;
-  text-align: left;
-}
-
-.transcript-toggle-label {
-  flex: 1;
-}
-
-.transcript-count {
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-  font-size: 0.8rem;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 999px;
-  padding: 1px 8px;
-}
-
-.transcript-chevron {
-  color: var(--muted);
-}
-
-.transcript-body {
-  max-height: 320px;
-  overflow-y: auto;
-  padding: 4px 16px 16px;
-  border-top: 1px solid var(--border);
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
-}
-
-.transcript-empty {
-  margin: 12px 0 4px;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.entry {
-  padding: 12px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.entry:last-child {
-  border-bottom: none;
-}
-
-.entry-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 5px;
-}
-
-.entry-speaker {
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.entry-user .entry-speaker {
-  color: var(--accent);
-}
-
-.entry-assistant .entry-speaker {
-  color: #8fc9c9;
-}
-
-.entry-time {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.entry-flag {
-  color: #e0ac76;
-  background: rgba(224, 172, 118, 0.12);
-  border-radius: 999px;
-  padding: 1px 7px;
-  font-size: 0.68rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.entry-text {
-  margin: 0;
-  font-size: 0.92rem;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.entry-placeholder {
-  color: var(--muted);
-}
-
-.entry-ellipsis {
-  color: var(--muted);
-}
-
-/* ── Responsive & motion ───────────────────────────────────────────────── */
-
-@media (max-width: 480px) {
-  .brand {
-    font-size: 1.25rem;
-  }
-
-  .transcript-body {
-    max-height: 260px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mic-button-live .mic-ring {
-    animation: none;
-    opacity: 0.5;
-  }
-
-  .mic-button {
-    transition: none;
-  }
-}
-/* -- session controls ------------------------------------------------------- */
-
-.extended-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  width: 100%;
-  margin-top: 1rem;
-}
-
-.control-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.toggle-button,
-.talk-button {
-  padding: 0.4rem 0.85rem;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--text);
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-
-.toggle-button[aria-pressed='true'],
-.talk-button-live {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.toggle-button:disabled,
-.talk-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-/* Keyboard focus must stay obvious on every control. */
-.toggle-button:focus-visible,
-.talk-button:focus-visible,
-.settings-select:focus-visible,
-.text-input:focus-visible,
-.text-button:focus-visible,
-.unlock-prompt:focus-visible {
+/* One focus treatment, everywhere, in the accent colour. Never removed. */
+:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.field.grow {
-  flex: 1 1 12rem;
-}
-
-.field-label,
-.settings-legend {
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-.settings-select,
-.text-input {
-  padding: 0.4rem 0.6rem;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--text);
-  font-size: 0.85rem;
-}
-
-.countdown {
-  margin-left: auto;
-  font-size: 0.8rem;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.warning-note {
-  margin: 0;
-  font-size: 0.8rem;
-  color: var(--warn, #d8a657);
-}
-
-/* -- sign-in ---------------------------------------------------------------- */
-
-.login {
-  max-width: 24rem;
-}
-
-.login-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-  margin-top: 0.9rem;
-}
-
-.login-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  font-size: 0.85rem;
-}
-
-.login-field input {
-  padding: 0.5rem 0.6rem;
-  border-radius: 8px;
-  border: 1px solid var(--line, rgba(255, 255, 255, 0.14));
-  background: var(--surface, rgba(255, 255, 255, 0.04));
-  color: var(--text);
-  font: inherit;
-}
-
-.button-quiet {
-  background: transparent;
-  border: 1px solid var(--line, rgba(255, 255, 255, 0.14));
-  color: var(--muted);
-}
-
-/* -- usage panel (development only) ---------------------------------------- */
-
-.usage-panel {
-  width: 100%;
-  border: 1px solid var(--line, rgba(255, 255, 255, 0.14));
-  border-radius: 12px;
-  padding: 0.6rem 0.9rem;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.usage-panel-summary {
-  cursor: pointer;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.usage-panel-grid {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.1rem 0.6rem;
-  margin: 0.7rem 0 0;
-}
-
-.usage-panel-grid dt {
-  color: var(--muted);
-}
-
-.usage-panel-grid dd {
-  margin: 0;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-
-.usage-panel-heading {
-  margin: 0.8rem 0 0.3rem;
-  font-size: 0.8rem;
-  color: var(--text);
-}
-
-.usage-panel-list {
-  margin: 0;
-  padding-left: 1.1rem;
-}
-
-/* -- settings --------------------------------------------------------------- */
-
-.settings {
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-  width: 100%;
-  margin-top: 1.5rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--line);
-}
-
-.settings-heading {
-  margin: 0;
-  font-size: 0.95rem;
-}
-
-.settings-fieldset {
-  border: 0;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.settings-legend {
-  padding: 0;
-}
-
-.settings-options {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.settings-option {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-areas: 'radio label' '. hint';
-  gap: 0 0.5rem;
-  align-items: center;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-
-.settings-option input {
-  grid-area: radio;
-}
-
-.settings-option-label {
-  grid-area: label;
-}
-
-.settings-option-hint {
-  grid-area: hint;
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-.settings-fieldset:disabled {
-  opacity: 0.55;
-}
-
-/* -- iOS audio unlock ------------------------------------------------------- */
-
-.unlock-prompt {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  padding: 0.7rem 1.1rem;
-  border-radius: 12px;
-  border: 1px solid var(--accent);
-  background: var(--accent-soft);
-  color: var(--text);
-  cursor: pointer;
-}
-
-.unlock-title {
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.unlock-hint {
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-/* Visible to screen readers only: the orb status needs a text equivalent. */
+/* Visible to assistive technology, not to the eye. */
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -646,11 +136,872 @@ body {
   border: 0;
 }
 
-/* Honour the OS setting: the orb itself freezes via a media query in the component. */
+/* --------------------------------------------------------------------------
+   Shell — the two-pane screen
+
+   Desktop splits into a fixed-width stage and a conversation pane that owns the
+   remaining height, with the transcript as its only scrolling region. Mobile
+   stacks them in one column and returns to normal document flow, because a
+   100dvh grid on a phone just hides content behind an unreachable scroll area.
+   -------------------------------------------------------------------------- */
+
+.app {
+  min-height: 100dvh;
+}
+
+@media (min-width: 960px) {
+  .app {
+    display: grid;
+    grid-template-columns: minmax(21rem, 27rem) minmax(0, 1fr);
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .stage {
+    overflow-y: auto;
+    padding: calc(var(--pad) + 0.25rem) var(--pad) var(--pad);
+    border-right: 1px solid var(--line);
+    background: var(--surface);
+    gap: 1.25rem;
+  }
+
+  .conversation {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    min-height: 0;
+    background: var(--bg);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Stage
+   -------------------------------------------------------------------------- */
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: var(--pad);
+}
+
+/*
+ * Children must keep their natural height.
+ *
+ * On desktop the stage is a height-constrained scrolling flex column, and flex items default to
+ * `flex-shrink: 1`. A two-line error message was therefore squeezed into a one-line box and painted
+ * straight over the primary button below it, because `overflow: visible` lets the text escape the
+ * box it was shrunk into. The stage scrolls instead.
+ */
+.stage > * {
+  flex: none;
+}
+
+.stage-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.brand {
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.tagline {
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+}
+
+.ring-area {
+  display: grid;
+  place-items: center;
+  padding: 0.5rem 0 0.25rem;
+}
+
+.ring-canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* --------------------------------------------------------------------------
+   Turn indicator
+
+   The one place the speaker colour is spelled out in words, sitting directly
+   under the ring so the two read together.
+   -------------------------------------------------------------------------- */
+
+.turn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  min-height: 1.75rem;
+}
+
+.turn-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  background: var(--line-strong);
+  flex: none;
+}
+
+.turn[data-owner="user"] .turn-dot {
+  background: var(--user);
+}
+
+.turn[data-owner="assistant"] .turn-dot {
+  background: var(--assistant);
+}
+
+.turn[data-owner="user"] .turn-name {
+  color: var(--user);
+}
+
+.turn[data-owner="assistant"] .turn-name {
+  color: var(--assistant-ink);
+}
+
+/* --------------------------------------------------------------------------
+   Status line
+   -------------------------------------------------------------------------- */
+
+.status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  text-align: center;
+  font-size: 0.9rem;
+  min-height: 1.5rem;
+}
+
+.status-message {
+  font-weight: 550;
+}
+
+.status-hint,
+.controls-hint {
+  color: var(--ink-muted);
+  font-size: 0.85rem;
+}
+
+.status-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ink-muted);
+  font-size: 0.85rem;
+}
+
+.status-error .status-message {
+  color: var(--danger-ink);
+}
+
+/* Errors get a surface of their own so a failure is unmissable without relying
+   on colour alone. */
+.status-boxed {
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 0.7rem 0.9rem;
+  align-items: stretch;
+  text-align: left;
+}
+
+.capability-note {
+  color: var(--danger-ink);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   Primary control
+
+   One pill, one label, always. The previous icon circle plus text link meant
+   "End conversation" appeared twice on the page, which is both a duplicated
+   accessible name and a genuinely ambiguous pair of targets.
+   -------------------------------------------------------------------------- */
+
+.primary {
+  display: flex;
+  justify-content: center;
+}
+
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: var(--touch);
+  padding: 0.7rem 1.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--user);
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+@media (prefers-color-scheme: dark) {
+  /* The light ultramarine is too dark to carry white text at this size. */
+  .primary-button {
+    color: #0f1220;
+  }
+}
+
+.primary-button:hover:not(:disabled) {
+  background: var(--user);
+  filter: brightness(1.08);
+}
+
+.primary-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.primary-button[data-variant="end"] {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  .primary-button[data-variant="end"] {
+    color: #2b0f0f;
+  }
+}
+
+.primary-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   Session controls
+   -------------------------------------------------------------------------- */
+
+.controls-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.control-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Icon + label chips. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: var(--touch);
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.chip[aria-pressed="true"],
+.chip-live {
+  background: color-mix(in srgb, var(--user) 12%, var(--surface));
+  border-color: var(--user);
+  color: var(--user);
+}
+
+@media (prefers-color-scheme: dark) {
+  .chip[aria-pressed="true"],
+  .chip-live {
+    color: var(--user);
+  }
+}
+
+.chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.hold-button {
+  flex: 1 1 100%;
+  justify-content: center;
+  min-height: 3rem;
+  font-weight: 600;
+  /* Touch-only affordance: this button is held, not tapped. */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.field.grow {
+  flex: 1 1 12rem;
+}
+
+.field-label,
+.settings-legend {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.settings-select,
+.text-input {
+  min-height: var(--touch);
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.875rem;
+  max-width: 100%;
+}
+
+.text-input:disabled,
+.settings-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.countdown {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   Composer
+   -------------------------------------------------------------------------- */
+
+.composer {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+  padding: 0.85rem var(--pad);
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.composer .field {
+  flex: 1 1 auto;
+}
+
+.composer-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: var(--touch);
+  min-width: var(--touch);
+  padding: 0.45rem 0.9rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--user);
+  color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  .composer-button {
+    color: #0f1220;
+  }
+}
+
+.composer-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   Notices
+
+   The idle warning was 0.8rem of muted text, which is not how you tell someone
+   their conversation is about to be taken away. It is a notice now.
+   -------------------------------------------------------------------------- */
+
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.notice-warning {
+  border-color: var(--assistant);
+  background: color-mix(in srgb, var(--assistant) 12%, var(--surface));
+  color: var(--ink);
+}
+
+.notice svg {
+  flex: none;
+  margin-top: 0.1rem;
+  color: var(--assistant-ink);
+}
+
+/* --------------------------------------------------------------------------
+   Conversation pane
+   -------------------------------------------------------------------------- */
+
+.conversation-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.9rem var(--pad);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.conversation-title {
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.conversation-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: var(--touch);
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.text-button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.text-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   Transcript
+
+   Always visible. Reading back what was said is half the product, so it is not
+   behind a toggle. User turns sit right in ultramarine, assistant turns left in
+   amber, and the serif face is reserved for spoken words — the one place where
+   reading matters more than scanning.
+   -------------------------------------------------------------------------- */
+
+.transcript {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.transcript-log {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--pad);
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  scroll-behavior: smooth;
+}
+
+.transcript-empty {
+  margin: auto;
+  max-width: 34ch;
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: 0.95rem;
+}
+
+/* Cap the measure in the font it governs. Putting `max-width` on .entry instead resolved the `ch`
+   unit against Bricolage Grotesque, and the serif text inside then fit ~83 characters per line —
+   over the 70ch target while still looking capped. */
+.entry {
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.entry-user {
+  align-self: flex-end;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.entry-assistant {
+  align-self: flex-start;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.entry-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.entry-user .entry-header {
+  flex-direction: row-reverse;
+}
+
+.entry-speaker {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.entry-user .entry-speaker {
+  color: var(--user);
+}
+
+.entry-assistant .entry-speaker {
+  color: var(--assistant-ink);
+}
+
+.entry-time {
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-flag {
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.entry-text {
+  margin: 0;
+  /* 60ch of Source Serif's "0" glyph measures about 68 real characters, which keeps the longest
+     line under the 70ch target. Measured in the browser rather than derived: a serif "0" is much
+     narrower than the average character, so 68ch here would have run to 77 characters. */
+  max-width: min(60ch, 100%);
+  font-family: var(--font-transcript);
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.entry-user .entry-text {
+  color: var(--ink);
+  padding-right: 0.75rem;
+  border-right: 2px solid var(--user);
+}
+
+.entry-assistant .entry-text {
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--assistant);
+}
+
+.entry-placeholder {
+  color: var(--ink-muted);
+}
+
+.entry-interrupted .entry-text {
+  color: var(--ink-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Settings
+
+   Only offered before a session starts. Mid-conversation they are disabled and
+   the summary line below is what remains, so the stage does not carry a panel of
+   dead controls.
+   -------------------------------------------------------------------------- */
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.settings-heading {
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.settings-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.settings-legend {
+  padding: 0;
+}
+
+.settings-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+/* A real radio input, visually replaced by a row the whole of which is the target. */
+.settings-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "radio label" ". hint";
+  gap: 0.1rem 0.6rem;
+  align-items: center;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  cursor: pointer;
+  min-height: var(--touch);
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.settings-option:hover {
+  border-color: var(--line-strong);
+}
+
+.settings-option input {
+  grid-area: radio;
+  accent-color: var(--user);
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+}
+
+.settings-option:has(input:checked) {
+  border-color: var(--user);
+  background: color-mix(in srgb, var(--user) 8%, var(--surface));
+}
+
+.settings-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-option-label {
+  grid-area: label;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.settings-option-hint {
+  grid-area: hint;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+.settings-fieldset:disabled {
+  opacity: 0.55;
+}
+
+.settings-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+}
+
+.settings-summary strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------------------
+   Sign-in page — .shell is the plain centred container here
+   -------------------------------------------------------------------------- */
+
+.shell {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--pad);
+}
+
+.panel {
+  width: 100%;
+  max-width: 24rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: calc(var(--pad) + 0.25rem);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.login code {
+  font-size: 0.85em;
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch);
+  padding: 0.55rem 1rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--user);
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  .button {
+    color: #0f1220;
+  }
+}
+
+.button-quiet {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--ink-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Development-only usage panel
+   -------------------------------------------------------------------------- */
+
+.usage-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.9rem;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+.usage-panel-summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--ink);
+  min-height: 1.75rem;
+  display: flex;
+  align-items: center;
+}
+
+.usage-panel-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.1rem 0.6rem;
+  margin: 0.7rem 0 0;
+}
+
+.usage-panel-grid dt {
+  color: var(--ink-muted);
+}
+
+.usage-panel-grid dd {
+  margin: 0;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.usage-panel-heading {
+  margin: 0.8rem 0 0.3rem;
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+
+.usage-panel-list {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+/* --------------------------------------------------------------------------
+   iOS audio unlock
+   -------------------------------------------------------------------------- */
+
+.unlock-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.7rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--user);
+  background: color-mix(in srgb, var(--user) 10%, var(--surface));
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.unlock-title {
+  font-weight: 650;
+  font-size: 0.9rem;
+}
+
+.unlock-hint {
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Reduced motion
+
+   The ring already checks prefers-reduced-motion itself and holds still, because
+   a canvas cannot be reached from a stylesheet. This covers everything else.
+   -------------------------------------------------------------------------- */
+
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }

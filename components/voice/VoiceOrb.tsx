@@ -4,35 +4,77 @@ import { useEffect, useRef } from "react";
 import type { VoiceState } from "@/lib/voice/types";
 
 /**
- * The voice orb.
+ * The voice ring.
  *
- * Rendered on a canvas and driven by the conversation state plus real measured amplitude, so it
- * reflects what is actually happening rather than animating on a timer. Each state has a distinct
- * colour and motion character; amplitude adds a reactive ripple that grows with loudness.
+ * The subject of this interface is a live spoken conversation, and the ring is the only thing on
+ * screen that is allowed to move on its own. It is a ring of short radial strokes rather than a
+ * filled shape for one reason: length reads as amplitude, so the ring is a direct picture of what
+ * the microphone is hearing or the assistant is producing, with no decoration in between.
+ *
+ * Motion is chosen per state and nothing animates on a timer for its own sake:
+ *
+ * - voice states  length follows the measured level, per stroke, so the shape is the signal
+ * - thinking      a comet head sweeps the ring with a decaying tail
+ * - listening     a faint breath, present but nearly still
+ * - idle/error    still, with only the colour carrying the state
+ *
+ * Colour means the same thing here as everywhere else in the interface: ultramarine is you, amber
+ * is the assistant, everything else is neutral so it cannot be mistaken for either.
+ *
+ * `aria-hidden` on purpose. The status line and turn indicator already say all of this in text, and
+ * a canvas has nothing to offer a screen reader beyond a duplicate.
  */
 
-interface OrbTheme {
-  /** Base colour, `r g b`. */
-  rgb: [number, number, number];
-  /** Ripple colour, `r g b`. */
-  accent: [number, number, number];
-  /** Idle breathing amplitude, 0–1. */
-  breath: number;
-  label: string;
-}
+/** How many strokes make up the ring. */
+const STROKES = 112;
 
-const THEMES: Record<VoiceState, OrbTheme> = {
-  idle: { rgb: [96, 106, 130], accent: [130, 142, 170], breath: 0.06, label: "Ready" },
-  connecting: { rgb: [120, 108, 150], accent: [160, 146, 196], breath: 0.1, label: "Connecting" },
-  reconnecting: { rgb: [150, 118, 92], accent: [196, 160, 124], breath: 0.12, label: "Reconnecting" },
-  listening: { rgb: [82, 124, 168], accent: [126, 172, 220], breath: 0.09, label: "Listening" },
-  user_speaking: { rgb: [64, 148, 152], accent: [110, 202, 202], breath: 0.14, label: "You're speaking" },
-  thinking: { rgb: [126, 116, 172], accent: [172, 162, 224], breath: 0.16, label: "Thinking" },
-  speaking: { rgb: [64, 148, 152], accent: [110, 202, 202], breath: 0.14, label: "Speaking" },
-  assistant_speaking: { rgb: [64, 148, 152], accent: [110, 202, 202], breath: 0.14, label: "Speaking" },
-  interrupting: { rgb: [176, 128, 82], accent: [224, 172, 118], breath: 0.2, label: "Interrupting" },
-  interrupted: { rgb: [176, 128, 82], accent: [224, 172, 118], breath: 0.2, label: "Interrupted" },
-  error: { rgb: [172, 96, 96], accent: [224, 132, 132], breath: 0.08, label: "Error" },
+type Rgb = [number, number, number];
+
+type Palette = {
+  user: Rgb;
+  assistant: Rgb;
+  neutral: Rgb;
+};
+
+/**
+ * Canvas cannot read CSS custom properties, so the palette is duplicated here as raw RGB and
+ * selected with matchMedia. Nothing enforces that these stay equal to the tokens in globals.css —
+ * a canvas that drifts from the page's colours is worse than no ring at all — so this is the one
+ * place in the interface where a colour change has to be made twice. The neutral is a tone of its
+ * own rather than a token, since nothing else on the page needs it.
+ *
+ * --user and --assistant are copied verbatim, so the ring, the turn indicator and the transcript
+ * are guaranteed to be the same ultramarine and the same amber.
+ */
+const PALETTES: Record<"light" | "dark", Palette> = {
+  light: {
+    user: [0x35, 0x50, 0xe8],
+    assistant: [0xd6, 0x86, 0x10],
+    neutral: [0x7a, 0x83, 0x99],
+  },
+  dark: {
+    user: [0x7c, 0x93, 0xff],
+    assistant: [0xf5, 0xb6, 0x55],
+    neutral: [0x74, 0x7e, 0xa4],
+  },
+};
+
+/** Which colour and which level the ring should follow. */
+type Mode = "user" | "assistant" | "comet" | "breath" | "still";
+
+const MODES: Record<VoiceState, Mode> = {
+  idle: "breath",
+  connecting: "breath",
+  reconnecting: "breath",
+  listening: "breath",
+  user_speaking: "user",
+  speaking: "assistant",
+  assistant_speaking: "assistant",
+  // The user cutting in: that is user audio and user colour.
+  interrupting: "user",
+  interrupted: "still",
+  thinking: "comet",
+  error: "still",
 };
 
 export interface VoiceOrbProps {
@@ -45,160 +87,190 @@ export interface VoiceOrbProps {
   active: boolean;
 }
 
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function lerpRgb(from: Rgb, to: Rgb, t: number): Rgb {
+  return [lerp(from[0], to[0], t), lerp(from[1], to[1], t), lerp(from[2], to[2], t)];
+}
+
 export function VoiceOrb({ state, micLevel, assistantLevel, size = 220, active }: VoiceOrbProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stateRef = useRef(state);
-  // Readers rather than sampled values: amplitude changes ~60×/second, so sampling it during
-  // render would either be stale or force a re-render on every frame.
+  const activeRef = useRef(active);
+  // Readers rather than sampled values: amplitude changes ~60×/second, so sampling it during render
+  // would either be stale or force a re-render on every frame.
   const micRef = useRef(micLevel);
   const assistantRef = useRef(assistantLevel);
-  const activeRef = useRef(active);
-
-  /**
-   * `prefers-reduced-motion` is read into a ref rather than state: it is a media query that can
-   * change at runtime, and the canvas loop needs the current value on every frame. Using state
-   * would re-run the whole effect on every toggle.
-   */
-  const reducedMotionRef = useRef(false);
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    reducedMotionRef.current = query.matches;
-    const onChange = (event: MediaQueryListEvent) => {
-      reducedMotionRef.current = event.matches;
-    };
-    query.addEventListener?.("change", onChange);
-    return () => query.removeEventListener?.("change", onChange);
-  }, []);
 
   stateRef.current = state;
+  activeRef.current = active;
   micRef.current = micLevel;
   assistantRef.current = assistantLevel;
-  activeRef.current = active;
+
+  /**
+   * Both media queries are read into refs rather than state. They can change at runtime and the
+   * canvas needs the current value on every frame; state would tear down and rebuild the whole
+   * effect on every toggle, restarting the animation from scratch.
+   */
+  const reducedMotionRef = useRef(false);
+  const darkRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const dark = window.matchMedia("(prefers-color-scheme: dark)");
+    reducedMotionRef.current = reduced.matches;
+    darkRef.current = dark.matches;
+
+    const onReduced = (event: MediaQueryListEvent) => {
+      reducedMotionRef.current = event.matches;
+    };
+    const onDark = (event: MediaQueryListEvent) => {
+      darkRef.current = event.matches;
+    };
+    reduced.addEventListener?.("change", onReduced);
+    dark.addEventListener?.("change", onDark);
+    return () => {
+      reduced.removeEventListener?.("change", onReduced);
+      dark.removeEventListener?.("change", onDark);
+    };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = size * dpr;
-    canvas.height = size * dpr;
-    ctx.scale(dpr, dpr);
+    // Draw at device resolution: a 2× ring drawn at CSS pixels is visibly soft on any modern
+    // screen, and strokes are thin enough that the softness shows as fuzz.
+    const ratio = Math.min(window.devicePixelRatio || 1, 3);
+    canvas.width = Math.round(size * ratio);
+    canvas.height = Math.round(size * ratio);
 
-    let frame = 0;
-    let time = 0;
-    // Smoothly interpolated values, so state changes ease rather than snap.
-    let displayLevel = 0;
-    let targetPulse = 0;
-    let lastKey = stateRef.current;
+    const cx = size / 2;
+    const cy = size / 2;
+    const radius = size / 2 - size * 0.13;
+    const trackLength = size * 0.05;
+    const maxLength = size * 0.15;
+    const lineWidth = Math.max(1.5, size * 0.009);
 
-    const render = () => {
-      time += 0.016;
-      const current = THEMES[stateRef.current] ?? THEMES.idle;
-      const nextKey = stateRef.current;
-      if (nextKey !== lastKey) {
-        // Brief brightening when the state changes, to make the transition legible.
-        targetPulse = 1;
-        lastKey = nextKey;
-      }
-      targetPulse *= 0.92;
+    // The current colour eases toward its target rather than snapping, so the handover between
+    // speakers reads as one ring changing colour instead of two things happening at once.
+    let colour: Rgb = PALETTES.light.neutral;
+    let startedAt = performance.now();
 
-      // Whose turn is it? Only the active speaker contributes amplitude.
-      const isUser = stateRef.current === "user_speaking";
-      const isAssistant = stateRef.current === "assistant_speaking";
-      const rawLevel = isUser ? micRef.current() : isAssistant ? assistantRef.current() : 0;
-      // Slight smoothing on the way in, decay on the way out.
-      displayLevel = rawLevel > displayLevel ? displayLevel + (rawLevel - displayLevel) * 0.5 : displayLevel * 0.9 + rawLevel * 0.1;
-
-      const cx = size / 2;
-      const cy = size / 2;
-      const baseRadius = size * 0.28;
-      // With reduced motion the orb holds still: no idle breathing, no state-change flash, and the
-      // amplitude is shown as a static radius change rather than travelling ripples. The status is
-      // still legible from the colour and the label on the canvas.
-      const reduced = reducedMotionRef.current;
-      const breath = reduced ? 0.5 : Math.sin(time * 1.4) * 0.5 + 0.5; // 0–1
-      const pulseBoost = reduced ? 0 : targetPulse * size * 0.05;
-      const radius = baseRadius * (1 + current.breath * breath + displayLevel * 0.28) + pulseBoost;
-
-      ctx.clearRect(0, 0, size, size);
-
-      const [r, g, b] = current.rgb;
-      const [ar, ag, ab] = current.accent;
-
-      // Outer reactive halo.
-      const haloRadius = radius * (1.35 + displayLevel * 0.5);
-      const halo = ctx.createRadialGradient(cx, cy, radius * 0.7, cx, cy, haloRadius);
-      halo.addColorStop(0, `rgba(${ar}, ${ag}, ${ab}, ${0.16 + displayLevel * 0.2})`);
-      halo.addColorStop(1, `rgba(${ar}, ${ag}, ${ab}, 0)`);
-      ctx.fillStyle = halo;
-      ctx.beginPath();
-      ctx.arc(cx, cy, haloRadius, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Core body.
-      const body = ctx.createRadialGradient(cx - radius * 0.3, cy - radius * 0.35, radius * 0.1, cx, cy, radius);
-      body.addColorStop(0, `rgba(${Math.min(255, ar + 20)}, ${Math.min(255, ag + 20)}, ${Math.min(255, ab + 20)}, 0.95)`);
-      body.addColorStop(0.65, `rgba(${r}, ${g}, ${b}, 0.9)`);
-      body.addColorStop(1, `rgba(${Math.round(r * 0.6)}, ${Math.round(g * 0.6)}, ${Math.round(b * 0.7)}, 0.75)`);
-      ctx.fillStyle = body;
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Reactive ripples radiating from the core when there's real audio energy.
-      if (activeRef.current && displayLevel > 0.02 && !reduced) {
-        const rings = 3;
-        for (let i = 0; i < rings; i++) {
-          const phase = (time * 0.9 + i / rings) % 1;
-          const ringRadius = radius + phase * size * 0.28 * (0.4 + displayLevel);
-          const alpha = (1 - phase) * 0.3 * displayLevel;
-          ctx.strokeStyle = `rgba(${ar}, ${ag}, ${ab}, ${alpha.toFixed(3)})`;
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-      }
-
-      // Thin outer stroke for definition.
-      ctx.strokeStyle = `rgba(${ar}, ${ag}, ${ab}, 0.45)`;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-      ctx.stroke();
-
-      frame = requestAnimationFrame(render);
+    const targetColour = (mode: Mode, palette: Palette): Rgb => {
+      if (mode === "user") return palette.user;
+      if (mode === "assistant") return palette.assistant;
+      return palette.neutral;
     };
 
-    frame = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(frame);
-  }, [size]);
+    const draw = (now: number) => {
+      const palette = PALETTES[darkRef.current ? "dark" : "light"];
+      const mode = MODES[stateRef.current];
+      const elapsed = (now - startedAt) / 1000;
+      const reduced = reducedMotionRef.current;
 
-  const theme = THEMES[state] ?? THEMES.idle;
-  const isTurn = state === "user_speaking" || state === "assistant_speaking";
+      // ~1 - e^(-t/0.12) over the frame, i.e. roughly 350ms to settle.
+      colour = lerpRgb(colour, targetColour(mode, palette), reduced ? 1 : 0.12);
+
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.lineCap = "round";
+      context.lineWidth = lineWidth * ratio;
+
+      const level =
+        mode === "user" ? micRef.current() : mode === "assistant" ? assistantRef.current() : 0;
+
+      // Under reduced motion the ring is a single still frame at a fixed, legible length. No spin,
+      // no comet, no wobble, and no dependence on live amplitude.
+      const useLevel = !reduced && (mode === "user" || mode === "assistant");
+
+      for (let i = 0; i < STROKES; i += 1) {
+        const angle = (i / STROKES) * Math.PI * 2 - Math.PI / 2;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+
+        let length = trackLength;
+        let alpha = 0.42;
+
+        if (useLevel) {
+          // Per-stroke variation, scrolling slowly, so the ring has an organic outline instead of
+          // reading as a single uniform spike.
+          const variation = 0.62 + 0.38 * (0.5 + 0.5 * Math.sin(i * 0.73 + elapsed * 2.1));
+          length = trackLength + level * maxLength * variation;
+          alpha = 0.55 + 0.45 * level;
+        } else if (mode === "comet" && !reduced) {
+          // Head sweeps once per 1.6s; each stroke brightens as the head passes and decays behind
+          // it, which is what makes it read as travelling rather than pulsing.
+          const head = ((elapsed / 1.6) % 1) * STROKES;
+          const behind = (head - i + STROKES) % STROKES;
+          const proximity = 1 - behind / (STROKES * 0.42);
+          if (proximity > 0) {
+            const eased = proximity * proximity;
+            length = trackLength + maxLength * 0.62 * eased;
+            alpha = 0.4 + 0.6 * eased;
+          }
+        } else if (mode === "breath" && !reduced) {
+          const breath = 0.5 + 0.5 * Math.sin(elapsed * 1.1);
+          length = trackLength + maxLength * 0.16 * breath;
+          alpha = 0.5 + 0.2 * breath;
+        } else if (activeRef.current && !reduced && mode === "still") {
+          // Interrupted and error states still breathe, very faintly, so a stopped ring does not
+          // read as a crashed one.
+          length = trackLength + maxLength * 0.05;
+          alpha = 0.42;
+        }
+
+        const inner = radius - length / 2;
+        context.globalAlpha = alpha;
+        // Every stroke uses the eased colour, which resolves to ultramarine for you, amber for the
+        // assistant, and neutral for everything else. An earlier version drew neutral states in the
+        // faint track colour, which made "listening" look like a ring that had failed to load
+        // rather than one that was deliberately calm.
+        context.strokeStyle = `rgb(${colour[0] | 0}, ${colour[1] | 0}, ${colour[2] | 0})`;
+
+        context.beginPath();
+        context.moveTo((cx + cos * inner) * ratio, (cy + sin * inner) * ratio);
+        context.lineTo((cx + cos * (inner + length)) * ratio, (cy + sin * (inner + length)) * ratio);
+        context.stroke();
+      }
+
+      context.globalAlpha = 1;
+    };
+
+    if (reducedMotionRef.current) {
+      // One frame, then stop. No requestAnimationFrame at all under reduced motion: a loop that
+      // redraws an identical picture sixty times a second is pure cost.
+      startedAt = performance.now();
+      draw(startedAt);
+      const onDarkChange = () => {
+        startedAt = performance.now();
+        draw(startedAt);
+      };
+      const dark = window.matchMedia?.("(prefers-color-scheme: dark)");
+      dark?.addEventListener?.("change", onDarkChange);
+      return () => dark?.removeEventListener?.("change", onDarkChange);
+    }
+
+    let frame = 0;
+    const loop = (now: number) => {
+      draw(now);
+      frame = requestAnimationFrame(loop);
+    };
+    frame = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(frame);
+  }, [size, state]);
 
   return (
-    <div className="orb-wrap" style={{ width: size, height: size }}>
-      <canvas
-        ref={canvasRef}
-        width={size}
-        height={size}
-        style={{ width: size, height: size }}
-        role="img"
-        aria-label={`Voice assistant status: ${theme.label}`}
-      />
-      {isTurn && (
-        <span className="orb-badge" aria-hidden="true">
-          {state === "user_speaking" ? "You" : "Assistant"}
-        </span>
-      )}
-      {/* Status is available as text too, so it does not depend on reading the canvas. */}
-      <span className="visually-hidden" role="status" aria-live="polite">
-        {theme.label}
-      </span>
-    </div>
+    <canvas
+      ref={canvasRef}
+      className="ring-canvas"
+      style={{ width: size, height: size }}
+      role="presentation"
+      aria-hidden="true"
+    />
   );
 }
