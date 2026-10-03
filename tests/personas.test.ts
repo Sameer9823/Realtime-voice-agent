@@ -14,6 +14,22 @@ import { buildInstructions } from "@/lib/voice/instructions";
 import { BASE_INSTRUCTIONS } from "@/lib/voice/config";
 
 /**
+ * The language codes OpenAI's `gpt-4o-transcribe` accepts for `transcription.language`.
+ *
+ * Read out of a live 400 response by `scripts/probe-transcription-hint.mjs`, which sends a
+ * deliberately invalid code and parses the list OpenAI answers with. Bare ISO-639-1 only — a
+ * regional variant such as `en-US` is rejected.
+ *
+ * Re-probe after any OpenAI API change and update this list.
+ */
+const OPENAI_TRANSCRIPTION_LANGUAGES = [
+  "af", "ar", "az", "be", "bg", "bs", "ca", "cs", "cy", "da", "de", "el", "en", "es", "et", "fa",
+  "fi", "fr", "gl", "he", "hi", "hr", "hu", "hy", "id", "is", "it", "iw", "ja", "kk", "kn", "ko",
+  "lt", "lv", "mi", "mk", "mr", "ms", "ne", "nl", "no", "pl", "pt", "ro", "ru", "sk", "sl", "sr",
+  "sv", "sw", "ta", "th", "tl", "tr", "uk", "ur", "vi", "zh",
+] as const;
+
+/**
  * Persona and language resolution.
  *
  * The security-relevant property is that the client can only ever choose from a fixed list. There
@@ -85,10 +101,37 @@ describe("languages", () => {
     expect(transcriptionHint("unknown-language")).toEqual({});
   });
 
-  it("sends a BCP-47 hint for a specific language", () => {
+  it("sends a bare ISO-639-1 hint for a specific language", () => {
     expect(transcriptionHint("hi")).toEqual({ language: "hi" });
     expect(transcriptionHint("ta")).toEqual({ language: "ta" });
     expect(transcriptionHint("fr")).toEqual({ language: "fr" });
+  });
+
+  /**
+   * Measured against the live API with `scripts/probe-transcription-hint.mjs`, which mints a real
+   * ephemeral credential for each shape. OpenAI rejects `en-US` with a 400 and accepts `en`, so
+   * bare codes are a requirement rather than a style choice.
+   *
+   * This test exists because "upgrade the language table to proper BCP-47 tags" sounds like an
+   * improvement and is in fact a change that breaks session creation for every language in the
+   * table. That refactor should fail here, not in production.
+   */
+  it("only offers language codes OpenAI actually accepts", () => {
+    for (const language of LANGUAGES) {
+      const hint = transcriptionHint(language.id);
+      if (!hint.language) {
+        // `auto` must send nothing; see the test above.
+        expect(language.id, language.id).toBe("auto");
+        continue;
+      }
+      expect(OPENAI_TRANSCRIPTION_LANGUAGES, `${language.id} sends "${hint.language}"`).toContain(hint.language);
+      // A regional variant is the specific mistake this guards against.
+      expect(hint.language, `${language.id} sends a regional variant`).not.toMatch("-");
+    }
+  });
+
+  it("keeps the accepted-code list free of regional variants, in case it is reused", () => {
+    expect(OPENAI_TRANSCRIPTION_LANGUAGES.filter((code) => code.includes("-"))).toEqual([]);
   });
 });
 

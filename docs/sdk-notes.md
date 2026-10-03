@@ -74,17 +74,37 @@ realtime provider by emitting one `conversation.item.create` per turn with
 
 ---
 
-## 2. Confirming the transcription language hint is supported
+## 2. The transcription language hint — resolved
 
-Not a blocker — recorded so it is checked rather than assumed.
+**Closed by measurement.** `scripts/probe-transcription-hint.mjs` mints a real ephemeral credential
+for each transcription shape, which is the same call that would fail if the parameter were rejected.
 
-The session route sends `transcription: { model: "gpt-4o-transcribe", language: "hi" }` when the user
-picks a specific language, and omits `language` for `auto`. Sending `"auto"` through would make
-OpenAI look for a language literally named "auto", so omitting it is deliberate.
+| `transcription.language` | Result |
+| --- | --- |
+| omitted (what `auto` sends) | 200 accepted |
+| `"hi"` (Hindi) | 200 accepted |
+| `"ta"` (Tamil, the low-resource case worth caring about) | 200 accepted |
+| `"en-US"` | **400 rejected** |
+| `"auto"` | **400 rejected** |
 
-`gpt-4o-transcribe` accepting a BCP-47 `language` hint has **not** been verified against the live
-API — only against mocked responses. Worth confirming that the parameter is accepted (and ignored
-rather than rejected) before relying on it for low-resource languages such as Tamil, where the hint
-carries the most weight.
+So the parameter is accepted rather than ignored, and for the languages this app offers the hint
+does something real.
 
-A live check for this belongs alongside `scripts/live-realtime-check.mjs`.
+Two constraints worth keeping in mind, both learned the hard way:
+
+**Bare ISO-639-1 only.** `"en-US"` is rejected. OpenAI accepts `en`, not `en-US`, and answers with
+the full list of 58 codes it will take. The `LANGUAGES` table in `lib/voice/personas.ts` already uses
+bare codes, so nothing is broken today — but "upgrade the table to proper BCP-47 tags" is a
+refactor that would break session creation for every language in it. `tests/personas.test.ts`
+asserts every code the table offers is one OpenAI accepts, so that refactor now fails CI instead of
+production.
+
+**`"auto"` really is rejected**, which confirms that `transcriptionHint()` returning `{}` for the
+auto case is correct rather than merely cautious. Passing it through would make OpenAI look for a
+language literally named "auto".
+
+Re-run the probe after any OpenAI model or API change:
+
+```bash
+OPENAI_API_KEY=... node scripts/probe-transcription-hint.mjs
+```

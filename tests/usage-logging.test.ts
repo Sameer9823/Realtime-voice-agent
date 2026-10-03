@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createUsageLog } from "@/lib/usage/log";
 import { postUsage, toUsagePayload } from "@/lib/usage/report";
-import { redactObject, truncate } from "@/lib/usage/redact";
+import { isSecretKey, keySegments, redactObject, truncate } from "@/lib/usage/redact";
 import { captureException, initSentry, resetSentryForTests, sentryEnabled } from "@/lib/sentry";
 import type { VoiceAgentEvent } from "samai-sdk/voice";
 
@@ -134,6 +134,89 @@ describe("redaction", () => {
     // Redaction keys off field names, not content. Scanning every string for key-shaped substrings
     // would mangle ordinary conversation, and the values that matter all arrive under known keys.
     expect(redactObject({ note: "the key is sk-live-123" }).note).toBe("the key is sk-live-123");
+  });
+
+  /**
+   * Regression: the pattern used to be a substring match on `token`, so `inputTokens`,
+   * `outputTokens`, and `totalTokens` were all redacted. The whole usage record was being destroyed
+   * while the tests passed, because they only ever used keys like `apiKey` and `authorization`.
+   * Found by sending a real record to the running server and reading the log line.
+   */
+  it("does not redact token COUNTS", () => {
+    const redacted = redactObject({
+      inputTokens: 900,
+      outputTokens: 250,
+      totalTokens: 1150,
+      tokens: 42,
+      sessionId: "sess-1",
+      reconnects: 1,
+      durationMs: 45_000,
+    });
+    expect(redacted).toEqual({
+      inputTokens: 900,
+      outputTokens: 250,
+      totalTokens: 1150,
+      tokens: 42,
+      sessionId: "sess-1",
+      reconnects: 1,
+      durationMs: 45_000,
+    });
+  });
+
+  it("still redacts a bare token key alongside the counts", () => {
+    expect(redactObject({ token: "abc", totalTokens: 1150 })).toEqual({
+      token: "[redacted]",
+      totalTokens: 1150,
+    });
+  });
+
+  it("splits key names on both separators and camelCase", () => {
+    expect(keySegments("OPENAI_API_KEY")).toEqual(["openai", "api", "key"]);
+    expect(keySegments("inputTokens")).toEqual(["input", "tokens"]);
+    expect(keySegments("auth_token")).toEqual(["auth", "token"]);
+    expect(keySegments("APIKey")).toEqual(["api", "key"]);
+    expect(keySegments("x-api-token")).toEqual(["x", "api", "token"]);
+  });
+
+  it("matches secrets across both naming styles", () => {
+    for (const key of [
+      "apiKey",
+      "api_key",
+      "API_KEY",
+      "OPENAI_API_KEY",
+      "accessToken",
+      "access_token",
+      "sessionToken",
+      "password",
+      "clientSecret",
+      "private_key",
+      "Cookie",
+    ]) {
+      expect(isSecretKey(key), key).toBe(true);
+    }
+  });
+
+  it("does not match innocent field names", () => {
+    for (const key of [
+      "sessionId",
+      "docId",
+      "turns",
+      "errors",
+      "toolsInvoked",
+      "transports",
+      "elapsed",
+      "totalTokens",
+      "keyboard",
+      "monkey",
+      "tokenizer",
+    ]) {
+      expect(isSecretKey(key), key).toBe(false);
+    }
+  });
+
+  it("redacts a secret hidden behind a compound key name", () => {
+    expect(redactObject({ userAuthToken: "abc" }).userAuthToken).toBe("[redacted]");
+    expect(redactObject({ "x-api-key": "abc" })["x-api-key"]).toBe("[redacted]");
   });
 });
 

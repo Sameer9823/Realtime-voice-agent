@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check:live": "node scripts/live-realtime-check.mjs",
+    "check:transcription": "node scripts/probe-transcription-hint.mjs",
     "docs:index": "node scripts/build-docs-index.mjs"
   },
   "dependencies": {

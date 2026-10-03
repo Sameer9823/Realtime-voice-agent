@@ -74,9 +74,16 @@ stops a modified client from substituting its own instructions.
 
 ### Output modality
 
-GA accepts exactly one output modality, `["text"]` or `["audio"]`; requesting both fails session
+OpenAI accepts exactly one output modality, `["text"]` or `["audio"]`; requesting both fails session
 creation. This app requests `["audio"]`, which costs nothing in captioning because the assistant
 transcript arrives as `response.output_audio_transcript.delta`.
+
+### Transcription language hint
+
+The route sends `transcription.language` only when a specific language is chosen, and sends nothing
+for `auto`. Both halves of that are measured rather than assumed: OpenAI accepts a real code (`hi`,
+`ta`), rejects `"auto"` outright, and rejects regional variants — `en` yes, `en-US` no. Bare ISO-639-1
+only. `npm run check:transcription` re-checks this and prints the 58 codes OpenAI will take.
 
 ---
 
@@ -206,9 +213,15 @@ check that catches a broken Dockerfile, since a missing `public/` or `content/` 
 runtime.
 
 `npm run check:live` talks to the real Realtime API and needs `OPENAI_API_KEY`. It mints a real
-credential, opens a real connection, and asserts a non-empty assistant transcript. The rest of the
-suite never needs a live credential: a test that only passes with a real key is a test that only ever
-runs on one machine.
+credential, opens a real connection, and asserts a non-empty assistant transcript.
+
+`npm run check:transcription` mints a real credential per transcription shape to confirm OpenAI still
+accepts the `transcription.language` hint. It also prints the list of language codes OpenAI will take,
+which is how `tests/personas.test.ts` stays honest about the codes in the language table. The hint
+wants bare ISO-639-1 codes: `en` is accepted and `en-US` is a 400.
+
+The rest of the suite never needs a live credential: a test that only passes with a real key is a
+test that only ever runs on one machine.
 
 ---
 
@@ -253,15 +266,18 @@ runs on one machine.
   session, so the model arrives with no memory of what was said. `docs/sdk-notes.md` documents why,
   including the server-side alternatives that were tried and rejected. Replaying with `sendText()`
   was rejected because it makes the assistant answer each replayed line.
-- **The WebSocket fallback is verified against the live API; the WebRTC path has not been exercised
-  in a real browser with a microphone** in the course of writing this. `samai-sdk`'s
-  `voice-webrtc-connection-test` covers it, and step 4 of the manual test above is the check worth
-  running yourself.
+- **The WebRTC path has not been exercised in a real browser with a microphone.** The WebSocket
+  fallback is verified end to end against the live API by `npm run check:live`, and
+  `samai-sdk`'s `voice-webrtc-connection-test` covers the WebRTC wiring, but step 4 of the manual
+  test above is the check worth running yourself. Barge-in in particular is the thing that makes
+  the app feel alive, and it is the thing no stub can prove.
 - `next-auth` is a **beta** (`5.0.0-beta.32`). It is the release that supports the App Router on
   Next 15; the stable v4 line has a worse App Router and middleware story there. Worth revisiting
   when Auth.js goes stable.
 - `lookup_docs` is lexical, so it matches words rather than meaning.
 - The tools have no per-user isolation: any authorised caller can invoke any tool.
+- There is no usage database. `/api/usage` writes to the server log, which is what a
+  single-instance deployment can support honestly.
 
 ---
 
