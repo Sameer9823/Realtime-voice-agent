@@ -465,6 +465,41 @@ body {
   color: var(--warn, #d8a657);
 }
 
+/* -- sign-in ---------------------------------------------------------------- */
+
+.login {
+  max-width: 24rem;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-top: 0.9rem;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+}
+
+.login-field input {
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.14));
+  background: var(--surface, rgba(255, 255, 255, 0.04));
+  color: var(--text);
+  font: inherit;
+}
+
+.button-quiet {
+  background: transparent;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.14));
+  color: var(--muted);
+}
+
 /* -- usage panel (development only) ---------------------------------------- */
 
 .usage-panel {

@@ -11,7 +11,8 @@ import { buildInstructions } from "@/lib/voice/instructions";
 import { captureException } from "@/lib/sentry";
 import { isLanguageId, isPersonaId, transcriptionHint } from "@/lib/voice/personas";
 import { OPENAI_API_KEY, openAiBaseUrl, realtimeModel, realtimeVoice } from "@/lib/voice/server-config";
-import { checkLimits, checkModel, checkOrigin, checkVoice, clientKey, guardFromEnv, type GuardDecision } from "@/lib/voice/guard";
+import { buildGuard, checkLimits, checkModel, checkOrigin, checkVoice, type GuardDecision } from "@/lib/voice/guard";
+import { checkAuth, guardKey } from "@/lib/auth";
 import type { SessionErrorBody, SessionRequestBody, SessionResponseBody } from "@/lib/voice/types";
 
 /**
@@ -28,9 +29,15 @@ export const dynamic = "force-dynamic";
 
 /**
  * Guards are built once per process. They hold the rate-limit buckets, so building them
- * per request would reset the counters and make the limit useless.
+ * per request would reset the counters and make the limit useless. The promise is memoised rather
+ * than awaited at module scope, because a top-level await would make this module async to every
+ * importer.
  */
-const guard = guardFromEnv();
+let guardPromise: ReturnType<typeof buildGuard> | null = null;
+function sharedGuard() {
+  guardPromise ??= buildGuard();
+  return guardPromise;
+}
 
 /** Renders a rejected guard decision as an HTTP response. */
 function refusal(decision: GuardDecision): NextResponse<SessionErrorBody> {
@@ -58,10 +65,16 @@ function classify(status: number, body: string): SessionErrorBody {
 }
 
 export async function POST(request: Request) {
+  const guard = await sharedGuard();
+
   const origin = checkOrigin(request.headers.get("origin"), guard.allowedOrigins);
   if (!origin.ok) return refusal(origin);
 
-  const limits = await checkLimits(clientKey(request), guard);
+  // Before the limiter, so an anonymous flood cannot spend the signed-in user's allowance.
+  const authorized = await checkAuth();
+  if (!authorized.ok) return refusal(authorized);
+
+  const limits = await checkLimits(await guardKey(request), guard);
   if (!limits.ok) return refusal(limits);
 
   const apiKey = OPENAI_API_KEY;

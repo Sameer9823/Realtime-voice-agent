@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { checkLimits, checkOrigin, clientKey, guardFromEnv } from "@/lib/voice/guard";
+import { buildGuard, checkLimits, checkOrigin } from "@/lib/voice/guard";
+import { checkAuth, guardKey } from "@/lib/auth";
 import { findTool } from "@/lib/tools/registry";
 import { captureException } from "@/lib/sentry";
 
@@ -15,7 +16,13 @@ import { captureException } from "@/lib/sentry";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const guard = guardFromEnv();
+/** Built once per process: the limiters hold the rate-limit buckets, so per-request construction
+ * would reset the counters and make the limit useless. */
+let guardPromise: ReturnType<typeof buildGuard> | null = null;
+function sharedGuard() {
+  guardPromise ??= buildGuard();
+  return guardPromise;
+}
 
 /** Cap on the body a client may send, so the route cannot be used to push large payloads. */
 const MAX_BODY_CHARS = 2000;
@@ -25,10 +32,15 @@ interface ToolRouteContext {
 }
 
 export async function POST(request: Request, context: ToolRouteContext) {
+  const guard = await sharedGuard();
+
   const origin = checkOrigin(request.headers.get("origin"), guard.allowedOrigins);
   if (!origin.ok) return refusal(origin.status, origin.message ?? "Origin not allowed.");
 
-  const limits = await checkLimits(clientKey(request), guard);
+  const authorized = await checkAuth();
+  if (!authorized.ok) return refusal(authorized.status, authorized.message ?? "Sign in to use this voice agent.");
+
+  const limits = await checkLimits(await guardKey(request), guard);
   if (!limits.ok) return refusal(limits.status, limits.message ?? "Too many requests.");
 
   const { name } = await context.params;

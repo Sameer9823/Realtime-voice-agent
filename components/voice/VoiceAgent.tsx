@@ -10,6 +10,7 @@ import { AudioUnlockPrompt } from "./AudioUnlockPrompt";
 import { VoiceTranscript } from "./VoiceTranscript";
 import { VoiceSettings } from "./VoiceSettings";
 import { UsagePanel } from "./UsagePanel";
+import { SignOutButton } from "./SignOutButton";
 import { DEFAULT_LANGUAGE_ID, DEFAULT_PERSONA_ID } from "@/lib/voice/config";
 import { useMediaDevices } from "@/lib/voice/use-media-devices";
 import { formatCountdown } from "@/lib/voice/use-session-limits";
@@ -21,7 +22,7 @@ import { useVoiceSession } from "@/lib/voice/use-voice-session";
  * Owns nothing but layout: all conversation behaviour comes from `useVoiceSession`, which drives the
  * realtime session.
  */
-export function VoiceAgentScreen() {
+export function VoiceAgentScreen({ authRequired = false }: { authRequired?: boolean }) {
   // Settings live here rather than in the hook because they are chosen before a session exists.
   const [personaId, setPersonaId] = useState(DEFAULT_PERSONA_ID);
   const [language, setLanguage] = useState(DEFAULT_LANGUAGE_ID);
@@ -143,6 +144,8 @@ export function VoiceAgentScreen() {
         )}
 
         <UsagePanel usage={usage} />
+
+        {authRequired && <SignOutButton />}
       </div>
     </main>
   );

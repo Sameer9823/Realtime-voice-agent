@@ -12,6 +12,7 @@
 
 /** Assistant voices accepted by the session route. */
 import type { VoiceErrorKind } from "./types";
+import { upstashLimiterFromEnv } from "./redis-limiter";
 
 export const VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "marin", "nova", "onyx", "sage", "shimmer", "verse"] as const;
 
@@ -122,6 +123,21 @@ export function guardFromEnv(env: Record<string, string | undefined> = process.e
     clientLimiter: new InMemoryRateLimiter(windowMs, maxRequests),
     globalLimiter: capMaxRequests > 0 ? new InMemoryRateLimiter(capWindowMs, capMaxRequests) : null,
   };
+}
+
+/**
+ * Production entry point: the same guard, but with a shared Redis limiter when Upstash is
+ * configured.
+ *
+ * Separate from `guardFromEnv` because reaching Redis is asynchronous, and the pure function is
+ * what the unit tests drive. Falling back to the in-memory limiter keeps a single-instance
+ * deployment working with no Redis at all.
+ */
+export async function buildGuard(env: Record<string, string | undefined> = process.env): Promise<GuardConfig> {
+  const guard = guardFromEnv(env);
+  const shared = await upstashLimiterFromEnv(env);
+  if (shared) guard.clientLimiter = shared;
+  return guard;
 }
 
 /** Reads the caller's IP, preferring the proxy header Next.js sets behind a host. */

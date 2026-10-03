@@ -41,6 +41,7 @@ export type VoiceErrorKind =
   | "model_unavailable"
   // Server-side guard rejections.
   | "forbidden"
+  | "unauthorized"
   | "invalid_voice"
   | "invalid_model"
   | "unknown";
