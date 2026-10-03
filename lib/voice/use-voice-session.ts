@@ -10,6 +10,8 @@ import {
 } from "samai-sdk/voice";
 import { createVoiceAgent, turnDetection } from "./agent";
 import { DEFAULT_LANGUAGE_ID, DEFAULT_PERSONA_ID } from "./config";
+import { createUsageLog, type UsageLog, type UsageLogEntry } from "@/lib/usage/log";
+import { postUsage } from "@/lib/usage/report";
 import { useSessionLimits } from "./use-session-limits";
 import type {
   SessionResponseBody,
@@ -120,6 +122,12 @@ export interface UseVoiceSessionResult {
   remainingMs: number | null;
   /** True once silence has passed the warning threshold. */
   idleWarning: boolean;
+  /**
+   * Running token and turn tally for the live session, or null before the first connection.
+   * Read from the SDK's `run-completed` event, which is the only place the model reports what a
+   * turn actually cost.
+   */
+  usage: UsageLogEntry | null;
   /** True until the user has interacted once, which iOS Safari requires before audio plays. */
   needsAudioUnlock: boolean;
   /** Clears `needsAudioUnlock`. Safe to call when it is already false. */
@@ -181,6 +189,18 @@ export function useVoiceSession(options: { personaId?: string; language?: string
   const stopRef = useRef<() => Promise<void>>(async () => {});
   /** Streaming transcript entry id per role. */
   const streamingRef = useRef<{ user?: string; assistant?: string }>({});
+
+  // ── usage accounting ──────────────────────────────────────────────────────
+
+  /**
+   * Token and turn counts for the live session, read from the SDK's `run-completed` event.
+   *
+   * The counter is kept in a ref rather than derived from the transcript because only the model
+   * knows what a turn cost, and because `stop` needs the final tally after the session is already
+   * closed. The mirrored state exists purely so the development panel can re-render.
+   */
+  const usageLogRef = useRef<UsageLog | null>(null);
+  const [usage, setUsage] = useState<UsageLogEntry | null>(null);
 
   // ── microphone gating ─────────────────────────────────────────────────────
 
@@ -364,6 +384,14 @@ export function useVoiceSession(options: { personaId?: string; language?: string
 
   const handleEvent = useCallback(
     (event: VoiceAgentEvent) => {
+      // Counters first: a usage record that misses the final `run-completed` because the view
+      // update threw would under-report a turn that really happened and was really billed.
+      const log = usageLogRef.current;
+      if (log) {
+        log.record(event);
+        setUsage(log.snapshot());
+      }
+
       // Any real conversation activity counts as activity for the idle timer. A session where
       // nobody is speaking is exactly the case the timer exists to catch.
       if (
@@ -599,6 +627,10 @@ export function useVoiceSession(options: { personaId?: string; language?: string
     const agent = createVoiceAgent(sessionInfo.model, sessionInfo.voice, sessionInfo.instructions);
     const context = ensureAudioContext();
 
+    // One usage log per connection, keyed by the session id the server minted.
+    usageLogRef.current = createUsageLog(sessionInfo.sessionId ?? nextEntryId());
+    setUsage(usageLogRef.current.snapshot());
+
     // 3. Playback element first: the provider may hand us the remote stream while connecting, and
     // the callback below needs somewhere to attach it.
     if (!audioElRef.current) {
@@ -720,7 +752,18 @@ export function useVoiceSession(options: { personaId?: string; language?: string
     setToolRunning(false);
     setError(null);
     setState("idle");
-  }, [cancelLimits, cancelReconnect, releaseAudio, releaseSession]);
+
+    // Ship the tally before dropping it. Only a session that actually spoke is worth reporting,
+    // and a failure here must not stop the teardown that already succeeded.
+    const log = usageLogRef.current;
+    if (log) {
+      const entry = log.snapshot();
+      usageLogRef.current = null;
+      if (entry.turns > 0 || entry.events > 0) {
+        void postUsage(entry, { context: { voice: requestedVoice, language, persona: personaId } });
+      }
+    }
+  }, [cancelLimits, cancelReconnect, language, personaId, releaseAudio, releaseSession, requestedVoice]);
 
   stopRef.current = stop;
 
@@ -763,6 +806,7 @@ export function useVoiceSession(options: { personaId?: string; language?: string
     talking,
     remainingMs: limits.remainingMs,
     idleWarning: limits.idleWarning,
+    usage,
     needsAudioUnlock,
     unlockAudio,
     setMuted,

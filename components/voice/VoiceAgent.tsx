@@ -9,6 +9,7 @@ import { ExtendedControls } from "./ExtendedControls";
 import { AudioUnlockPrompt } from "./AudioUnlockPrompt";
 import { VoiceTranscript } from "./VoiceTranscript";
 import { VoiceSettings } from "./VoiceSettings";
+import { UsagePanel } from "./UsagePanel";
 import { DEFAULT_LANGUAGE_ID, DEFAULT_PERSONA_ID } from "@/lib/voice/config";
 import { useMediaDevices } from "@/lib/voice/use-media-devices";
 import { formatCountdown } from "@/lib/voice/use-session-limits";
@@ -42,6 +43,7 @@ export function VoiceAgentScreen() {
     talking,
     remainingMs,
     idleWarning,
+    usage,
     needsAudioUnlock,
     unlockAudio,
     setMuted,
@@ -139,6 +141,8 @@ export function VoiceAgentScreen() {
             Missing: {capabilities.missing.join(", ")}.
           </p>
         )}
+
+        <UsagePanel usage={usage} />
       </div>
     </main>
   );

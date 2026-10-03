@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { checkLimits, checkOrigin, clientKey, guardFromEnv } from "@/lib/voice/guard";
 import { findTool } from "@/lib/tools/registry";
+import { captureException } from "@/lib/sentry";
 
 /**
  * Server-side tool execution.
@@ -64,6 +65,7 @@ export async function POST(request: Request, context: ToolRouteContext) {
     // Tools are contracted to return friendly strings, so reaching here is a bug. Log the
     // detail server-side and speak something safe rather than leaking a stack trace.
     console.error(`[tools/${name}] threw:`, err);
+    captureException(err, { tool: name });
     return refusal(500, `The ${tool.name.replace(/_/g, " ")} tool failed. Please try again.`);
   }
 }

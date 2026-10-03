@@ -8,6 +8,7 @@ import {
   DEFAULT_REALTIME_VOICE,
 } from "@/lib/voice/config";
 import { buildInstructions } from "@/lib/voice/instructions";
+import { captureException } from "@/lib/sentry";
 import { isLanguageId, isPersonaId, transcriptionHint } from "@/lib/voice/personas";
 import { OPENAI_API_KEY, openAiBaseUrl, realtimeModel, realtimeVoice } from "@/lib/voice/server-config";
 import { checkLimits, checkModel, checkOrigin, checkVoice, clientKey, guardFromEnv, type GuardDecision } from "@/lib/voice/guard";
@@ -140,12 +141,15 @@ export async function POST(request: Request) {
       instructions,
       personaId,
       language,
+      sessionId: crypto.randomUUID(),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const statusMatch = /\((\d{3})/.exec(message);
     const status = statusMatch ? Number(statusMatch[1]) : 502;
     console.error("[realtime/session] failed to mint client secret:", message);
+    // A 4xx here is the caller's problem, not the deployment's, so only 5xx is worth an issue.
+    if (status >= 500) captureException(err, { route: "realtime/session", status });
     return NextResponse.json<SessionErrorBody>(classify(status, message), { status: status >= 400 && status < 600 ? status : 502 });
   }
 }

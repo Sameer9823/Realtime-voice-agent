@@ -83,9 +83,14 @@ export interface SessionResponseBody {
    * own, so a modified client cannot smuggle in a different system prompt.
    */
   instructions: string;
-  personaId: string;
-  language: string;
-}
+    personaId: string;
+    language: string;
+    /**
+     * Correlation id for this session. Not a secret — it exists so the usage report the browser
+     * sends at the end can be matched against the server's own log line for the same session.
+     */
+    sessionId: string;
+  }
 
 export interface SessionErrorBody {
   error: VoiceErrorKind;
